@@ -2,7 +2,8 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use polymarket_backend::{
     config::AppConfig,
-    router::{build_router, build_router_with_storage},
+    realtime::RealtimeRuntime,
+    router::build_router_with_runtime,
     storage::{
         connect_pool, run_migrations, PgPoolOptionsConfig, PostgresStorage, StorageWriter,
         StorageWriterRuntime,
@@ -32,11 +33,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    let app = if let Some(writer) = storage_writer {
-        build_router_with_storage(config, Some(writer))
-    } else {
-        build_router(config)
-    };
+    let realtime = Some(RealtimeRuntime::spawn_default());
+    let app = build_router_with_runtime(config, storage_writer, realtime);
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     tracing::info!(%addr, "starting polymarket backend");

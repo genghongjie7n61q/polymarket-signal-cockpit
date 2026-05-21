@@ -2,7 +2,8 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use polymarket_backend::{
     config::AppConfig,
-    router::{build_router, build_router_with_storage},
+    realtime::{MarketTick, RealtimeBus, RealtimeEvent, RealtimeRuntime, RealtimeStateOwner},
+    router::{build_router, build_router_with_runtime, build_router_with_storage},
     storage::{
         NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
         RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageCommand,
@@ -55,6 +56,7 @@ async fn healthz_returns_structured_service_status() {
             "database_configured": false,
             "supported_markets": ["btc5m", "eth15m"],
             "storage_writer": null,
+            "realtime": null,
             "runtime": {
                 "environment": "local",
                 "database_configured": false,
@@ -115,6 +117,55 @@ async fn healthz_exposes_storage_writer_metrics_when_configured() {
     assert_eq!(json["storage_writer"]["written"], 1);
 
     drop(writer);
+}
+
+#[tokio::test]
+async fn healthz_exposes_realtime_runtime_metrics_when_configured() {
+    let config = AppConfig::from_env_map([
+        ("POLY_ENV".to_string(), "local".to_string()),
+        ("APP_VERSION".to_string(), "test-version".to_string()),
+    ])
+    .expect("test config should be valid");
+    let (bus, rx) = RealtimeBus::bounded(4);
+    let state_owner = RealtimeStateOwner::spawn(rx, Default::default(), Vec::new());
+    let runtime = RealtimeRuntime::new(bus.clone(), state_owner);
+
+    bus.try_publish(RealtimeEvent::Tick(MarketTick {
+        market_key: polymarket_backend::realtime::MarketKey::Btc5m,
+        symbol: "BTC-USD".to_string(),
+        source: "coinbase".to_string(),
+        source_ts: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(10),
+        received_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(10),
+        price: "100.0".parse().unwrap(),
+        size: Some("0.1".parse().unwrap()),
+        sequence: Some(10),
+    }))
+    .expect("tick publish should succeed");
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let app = build_router_with_runtime(config, None, Some(runtime));
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("health request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["realtime"]["bus"]["queued_capacity"], 4);
+    assert_eq!(json["realtime"]["bus"]["accepted"], 1);
+    assert_eq!(json["realtime"]["state"]["metrics"]["processed"], 1);
+    assert_eq!(json["realtime"]["state"]["sources"]["coinbase"], "stale");
 }
 
 struct HealthRepository;

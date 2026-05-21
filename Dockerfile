@@ -1,5 +1,7 @@
 FROM rust:1.87-bookworm AS builder
 
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
 WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 COPY backend ./backend
