@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.polymarket.btc5m.monitor</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/genghongjie/AI/workspaces/polymarket</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>/Users/genghongjie/AI/workspaces/polymarket/scripts/eth_15m_platform.py</string>
+    <string>--market</string>
+    <string>btc5m</string>
+    <string>--auto-current</string>
+    <string>--monitor-ws</string>
+    <string>--loop</string>
+    <string>--quiet</string>
+    <string>--bankroll</string>
+    <string>15</string>
+    <string>--alert-file</string>
+    <string>/Users/genghongjie/AI/workspaces/polymarket/reports/btc_5m_alerts.jsonl</string>
+    <string>--log-file</string>
+    <string>/Users/genghongjie/AI/workspaces/polymarket/reports/btc_5m_runtime.jsonl</string>
+  </array>
+
+  <key>StandardOutPath</key>
+  <string>/Users/genghongjie/AI/workspaces/polymarket/reports/btc_5m_launchd.stdout.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/genghongjie/AI/workspaces/polymarket/reports/btc_5m_launchd.stderr.log</string>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
