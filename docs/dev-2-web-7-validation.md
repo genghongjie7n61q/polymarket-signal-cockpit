@@ -58,5 +58,26 @@ podman rm -f polymarket-backend-web7-smoke
 
 ## Follow-up
 
-- For composed deployment with database and collector together, either expose clash on a container-reachable address or run a dedicated proxy sidecar in the compose network.
+- Chosen dev-2 deployment scheme: use `docker-compose.dev2.yml`.
+  - `backend` runs with `network_mode: host`, so `COINBASE_WS_PROXY=http://127.0.0.1:7890` reaches host-local clash without exposing clash to the LAN.
+  - `postgres` remains containerized and publishes only `127.0.0.1:15432`.
+  - `DATABASE_URL` points to `127.0.0.1:15432` from the host-network backend.
+- Start dev-2 stack:
+
+```bash
+POSTGRES_PASSWORD=dev2-local-polymarket-password \
+DEV2_APP_PORT=8080 \
+podman-compose -f docker-compose.dev2.yml up -d
+
+curl -fsS http://192.168.103.157:8080/healthz
+```
+
+- If another backend already occupies port `8080`, validate on a temporary port:
+
+```bash
+DEV2_APP_PORT=18082 DEV2_POSTGRES_HOST_PORT=15433 podman-compose -f docker-compose.dev2.yml up -d
+curl -fsS http://192.168.103.157:18082/healthz
+podman-compose -f docker-compose.dev2.yml down
+```
+
 - Keep `CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse` and persistent Cargo cache mounts for dev-2 validation.
