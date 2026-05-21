@@ -73,6 +73,7 @@ docker compose down
 ```
 
 The backend fails fast when `POLY_ENV=production` and `DATABASE_URL` is missing. Real webhook values belong only in local `.env` files and must not be committed.
+`BACKEND_BIND` defaults to `127.0.0.1`; set it to `0.0.0.0` only on a controlled deployment host that should accept external traffic.
 
 ## Target Architecture
 
