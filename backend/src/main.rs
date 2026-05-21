@@ -2,7 +2,10 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use polymarket_backend::{
     config::AppConfig,
-    realtime::{MarketKey, RealtimeRuntime, DEFAULT_REALTIME_QUEUE_CAPACITY},
+    realtime::{
+        run_coinbase_ws_collector_until, CoinbaseCollectorConfig, MarketKey, RealtimeRuntime,
+        DEFAULT_REALTIME_QUEUE_CAPACITY,
+    },
     router::build_router_with_runtime,
     storage::{
         connect_pool, run_migrations, PgPoolOptionsConfig, PostgresStorage, StorageWriter,
@@ -44,6 +47,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         None => RealtimeRuntime::spawn_default(),
     });
+    if let Some(runtime) = realtime.clone() {
+        tokio::spawn(async move {
+            loop {
+                tracing::info!("starting coinbase websocket collector");
+                let mut coinbase_config = CoinbaseCollectorConfig::default();
+                coinbase_config.proxy = std::env::var("COINBASE_WS_PROXY")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty());
+                let result =
+                    run_coinbase_ws_collector_until(coinbase_config, runtime.clone(), usize::MAX)
+                        .await;
+                match result {
+                    Ok(published) => {
+                        tracing::warn!(published, "coinbase websocket collector stopped");
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "coinbase websocket collector failed");
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+    }
     let app = build_router_with_runtime(config, storage_writer, realtime);
     let listener = tokio::net::TcpListener::bind(addr).await?;
 

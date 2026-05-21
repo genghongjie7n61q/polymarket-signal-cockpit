@@ -11,8 +11,10 @@ pub mod window;
 pub use bus::{RealtimeBus, RealtimeBusSnapshot, RealtimeEvent};
 pub use candle::{CandleAggregator, CandleSnapshot};
 pub use collector::{
-    CoinbaseCollectorConfig, CollectorEvent, CollectorEventSink, CollectorIngress,
-    PolymarketSnapshotRefresherConfig,
+    build_coinbase_heartbeat_subscribe_message, build_coinbase_subscribe_message,
+    handle_coinbase_ws_message, run_coinbase_ws_collector_until, CoinbaseCollectorConfig,
+    CollectorEvent, CollectorEventSink, CollectorIngress, CollectorRunError,
+    PolymarketSnapshotRefresherConfig, COINBASE_WS_ENDPOINT, POLYMARKET_MARKET_WS_ENDPOINT,
 };
 pub use normalize::{normalize_coinbase_ticker, normalize_polymarket_snapshot};
 pub use runtime::{

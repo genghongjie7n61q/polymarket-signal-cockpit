@@ -1,6 +1,7 @@
 use polymarket_backend::realtime::{
-    CoinbaseCollectorConfig, CollectorEvent, CollectorEventSink, CollectorIngress, MarketKey,
-    PolymarketSnapshotRefresherConfig, RealtimeEvent,
+    build_coinbase_subscribe_message, handle_coinbase_ws_message, CoinbaseCollectorConfig,
+    CollectorEvent, CollectorEventSink, CollectorIngress, MarketKey,
+    PolymarketSnapshotRefresherConfig, RealtimeEvent, COINBASE_WS_ENDPOINT,
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};
@@ -12,6 +13,7 @@ fn collector_config_defaults_to_supported_symbols_and_markets() {
     let polymarket = PolymarketSnapshotRefresherConfig::default();
 
     assert_eq!(coinbase.symbols, vec!["BTC-USD", "ETH-USD"]);
+    assert_eq!(coinbase.connect_timeout, std::time::Duration::from_secs(10));
     assert_eq!(
         polymarket.markets,
         vec![MarketKey::Btc5m, MarketKey::Eth15m]
@@ -86,6 +88,67 @@ fn collector_ingress_normalizes_polymarket_snapshot_and_heartbeat() {
         &events[1],
         RealtimeEvent::SourceHeartbeat { source, received_at }
             if source == "coinbase" && *received_at == captured_at
+    ));
+}
+
+#[test]
+fn coinbase_subscribe_message_uses_public_ticker_and_heartbeat_channels() {
+    let config = CoinbaseCollectorConfig::default();
+    let message = build_coinbase_subscribe_message(&config);
+
+    assert_eq!(config.endpoint, COINBASE_WS_ENDPOINT);
+    assert_eq!(message["type"], "subscribe");
+    assert_eq!(message["product_ids"], json!(["BTC-USD", "ETH-USD"]));
+    assert_eq!(message["channel"], "ticker");
+}
+
+#[test]
+fn coinbase_ws_handler_publishes_ticker_and_heartbeat_messages() {
+    let sink = RecordingSink::default();
+    let ingress = CollectorIngress::new(sink.clone());
+    let received_at = OffsetDateTime::UNIX_EPOCH + Duration::seconds(30);
+
+    handle_coinbase_ws_message(
+        &ingress,
+        &json!({
+            "channel": "ticker",
+            "timestamp": "2026-05-21T12:00:02Z",
+            "sequence_num": 43,
+            "events": [{
+                "type": "snapshot",
+                "tickers": [{
+                    "type": "ticker",
+                    "product_id": "ETH-USD",
+                    "price": "3600.25"
+                }]
+            }]
+        }),
+        received_at,
+    )
+    .expect("ticker should publish");
+    handle_coinbase_ws_message(
+        &ingress,
+        &json!({
+            "channel": "heartbeats",
+            "timestamp": "2026-05-21T12:00:03Z",
+            "events": [{
+                "current_time": "2026-05-21T12:00:03Z"
+            }]
+        }),
+        received_at,
+    )
+    .expect("heartbeat should publish");
+
+    let events = sink.events();
+    assert_eq!(events.len(), 2);
+    assert!(matches!(
+        &events[0],
+        RealtimeEvent::Tick(tick) if tick.market_key == MarketKey::Eth15m
+    ));
+    assert!(matches!(
+        &events[1],
+        RealtimeEvent::SourceHeartbeat { source, received_at: ts }
+            if source == "coinbase" && *ts == received_at
     ));
 }
 
