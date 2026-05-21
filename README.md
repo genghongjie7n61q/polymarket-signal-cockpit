@@ -75,6 +75,10 @@ docker compose down
 The backend fails fast when `POLY_ENV=production` and `DATABASE_URL` is missing. Real webhook values belong only in local `.env` files and must not be committed.
 `BACKEND_BIND` defaults to `127.0.0.1`; set it to `0.0.0.0` only on a controlled deployment host that should accept external traffic.
 
+## WEB-6 Storage Validation
+
+Storage tests and PostgreSQL validation run on `dev-2`; do not start local Mac database containers. See [docs/dev-2-web-6-validation.md](docs/dev-2-web-6-validation.md).
+
 ## Target Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the proposed platform architecture and [docs/model-plugin-api.md](docs/model-plugin-api.md) for the model plugin contract.

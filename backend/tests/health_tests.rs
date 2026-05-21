@@ -43,6 +43,7 @@ async fn healthz_returns_structured_service_status() {
             "environment": "local",
             "database_configured": false,
             "supported_markets": ["btc5m", "eth15m"],
+            "storage_writer": null,
             "runtime": {
                 "environment": "local",
                 "database_configured": false,
