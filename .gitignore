@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 target/
+.worktrees/
 
 # Runtime outputs
 reports/*.json
