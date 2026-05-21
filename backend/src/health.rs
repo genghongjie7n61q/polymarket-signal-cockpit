@@ -1,7 +1,7 @@
 use axum::{extract::State, Json};
 use serde::Serialize;
 
-use crate::{config::AppConfig, router::AppState, storage::StorageWriterSnapshot};
+use crate::{router::AppState, storage::StorageWriterSnapshot};
 
 const SERVICE_NAME: &str = "polymarket-backend";
 
