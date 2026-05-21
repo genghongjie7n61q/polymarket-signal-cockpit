@@ -2,11 +2,14 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 use time::OffsetDateTime;
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 use crate::realtime::{
-    RealtimeBus, RealtimeBusSnapshot, RealtimeEvent, RealtimeStateMetrics, RealtimeStateOwner,
-    StateOwnerConfig,
+    MarketKey, RealtimeBus, RealtimeBusSnapshot, RealtimeEvent, RealtimeStateMetrics,
+    RealtimeStateOwner, RealtimeStorageBridge, RealtimeStorageBridgeSnapshot, StateOwnerConfig,
 };
+use crate::storage::StorageWriterHandle;
 
 pub const DEFAULT_REALTIME_QUEUE_CAPACITY: usize = 4096;
 
@@ -14,6 +17,7 @@ pub const DEFAULT_REALTIME_QUEUE_CAPACITY: usize = 4096;
 pub struct RealtimeRuntime {
     bus: RealtimeBus,
     state_owner: RealtimeStateOwner,
+    storage_bridge: Option<RealtimeStorageBridge>,
 }
 
 impl RealtimeRuntime {
@@ -24,11 +28,36 @@ impl RealtimeRuntime {
     pub fn spawn(capacity: usize) -> Self {
         let (bus, rx) = RealtimeBus::bounded(capacity);
         let state_owner = RealtimeStateOwner::spawn(rx, StateOwnerConfig::default(), Vec::new());
-        Self { bus, state_owner }
+        Self {
+            bus,
+            state_owner,
+            storage_bridge: None,
+        }
+    }
+
+    pub fn spawn_with_storage(
+        capacity: usize,
+        writer: StorageWriterHandle,
+        market_ids: BTreeMap<MarketKey, Uuid>,
+    ) -> Self {
+        let (bus, rx) = RealtimeBus::bounded(capacity);
+        let (storage_tx, storage_rx) = mpsc::channel(capacity);
+        let storage_bridge = RealtimeStorageBridge::spawn(storage_rx, writer, market_ids);
+        let state_owner =
+            RealtimeStateOwner::spawn(rx, StateOwnerConfig::default(), vec![storage_tx]);
+        Self {
+            bus,
+            state_owner,
+            storage_bridge: Some(storage_bridge),
+        }
     }
 
     pub fn new(bus: RealtimeBus, state_owner: RealtimeStateOwner) -> Self {
-        Self { bus, state_owner }
+        Self {
+            bus,
+            state_owner,
+            storage_bridge: None,
+        }
     }
 
     pub fn bus(&self) -> &RealtimeBus {
@@ -48,6 +77,10 @@ impl RealtimeRuntime {
                 sources: self.state_owner.source_status_at(now),
                 markets_tracked: state.markets.len(),
             },
+            storage_bridge: self
+                .storage_bridge
+                .as_ref()
+                .map(RealtimeStorageBridge::snapshot),
         }
     }
 }
@@ -56,6 +89,7 @@ impl RealtimeRuntime {
 pub struct RealtimeRuntimeSnapshot {
     pub bus: RealtimeBusSnapshot,
     pub state: RealtimeStateHealthSnapshot,
+    pub storage_bridge: Option<RealtimeStorageBridgeSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

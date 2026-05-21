@@ -1,10 +1,15 @@
 use async_trait::async_trait;
 use sqlx::{PgPool, Row};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
-use crate::storage::{
-    NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-    RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageError, TickRecord,
+use crate::{
+    realtime::MarketKey,
+    storage::{
+        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageError,
+        TickRecord,
+    },
 };
 
 #[async_trait]
@@ -42,6 +47,33 @@ impl PostgresStorage {
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    pub async fn load_realtime_market_ids(
+        &self,
+    ) -> Result<BTreeMap<MarketKey, Uuid>, StorageError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT market_key, id
+            FROM markets
+            WHERE market_key = ANY($1)
+            "#,
+        )
+        .bind(&[MarketKey::Btc5m.as_str(), MarketKey::Eth15m.as_str()])
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut market_ids = BTreeMap::new();
+        for row in rows {
+            let market_key: String = row.get("market_key");
+            let market_id: Uuid = row.get("id");
+            let market_key = market_key
+                .parse::<MarketKey>()
+                .map_err(|error| StorageError::InvalidInput(error.to_string()))?;
+            market_ids.insert(market_key, market_id);
+        }
+
+        Ok(market_ids)
     }
 }
 

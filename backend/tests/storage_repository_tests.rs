@@ -1,7 +1,10 @@
 use bigdecimal::BigDecimal;
-use polymarket_backend::storage::{
-    connect_pool, run_migrations, NewNotificationDelivery, NewRawMarketEvent, NewSignal, NewTick,
-    PgPoolOptionsConfig, PostgresStorage, StorageRepository,
+use polymarket_backend::{
+    realtime::MarketKey,
+    storage::{
+        connect_pool, run_migrations, NewNotificationDelivery, NewRawMarketEvent, NewSignal,
+        NewTick, PgPoolOptionsConfig, PostgresStorage, StorageRepository,
+    },
 };
 use serde_json::json;
 use sqlx::{PgPool, Row};
@@ -53,6 +56,26 @@ async fn repository_inserts_tick_idempotently() {
     assert_eq!(second.price, BigDecimal::from(77998));
 
     ctx.cleanup().await;
+}
+
+#[tokio::test]
+async fn repository_loads_seeded_market_ids_for_realtime_bridge() {
+    let database_url = database_url();
+    let pool = connect_pool(&database_url, PgPoolOptionsConfig { max_connections: 3 })
+        .await
+        .expect("test database should connect");
+    run_migrations(&pool)
+        .await
+        .expect("migrations should apply");
+    let storage = PostgresStorage::new(pool);
+
+    let market_ids = storage
+        .load_realtime_market_ids()
+        .await
+        .expect("market ids should load");
+
+    assert!(market_ids.contains_key(&MarketKey::Btc5m));
+    assert!(market_ids.contains_key(&MarketKey::Eth15m));
 }
 
 #[tokio::test]

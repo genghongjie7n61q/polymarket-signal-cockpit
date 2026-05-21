@@ -1,8 +1,8 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use polymarket_backend::{
     config::AppConfig,
-    realtime::RealtimeRuntime,
+    realtime::{MarketKey, RealtimeRuntime, DEFAULT_REALTIME_QUEUE_CAPACITY},
     router::build_router_with_runtime,
     storage::{
         connect_pool, run_migrations, PgPoolOptionsConfig, PostgresStorage, StorageWriter,
@@ -10,6 +10,7 @@ use polymarket_backend::{
     },
 };
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -20,20 +21,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let addr = SocketAddr::new(config.host.parse()?, config.port);
-    let storage_writer = if let Some(database_url) = config.database_url.as_deref() {
+    let (storage_writer, market_ids) = if let Some(database_url) = config.database_url.as_deref() {
         let pool = connect_pool(database_url, PgPoolOptionsConfig::default()).await?;
         run_migrations(&pool).await?;
-        let storage = Arc::new(PostgresStorage::new(pool));
+        let storage = PostgresStorage::new(pool);
+        let market_ids = storage.load_realtime_market_ids().await?;
+        let storage = Arc::new(storage);
         let (writer, join) = StorageWriter::spawn(
             storage,
             config.storage_writer_queue_capacity,
             Duration::from_millis(config.storage_writer_flush_interval_ms),
         );
-        Some(StorageWriterRuntime::new(writer, join))
+        (Some(StorageWriterRuntime::new(writer, join)), market_ids)
     } else {
-        None
+        (None, BTreeMap::<MarketKey, Uuid>::new())
     };
-    let realtime = Some(RealtimeRuntime::spawn_default());
+    let realtime = Some(match storage_writer.as_ref() {
+        Some(writer) => RealtimeRuntime::spawn_with_storage(
+            DEFAULT_REALTIME_QUEUE_CAPACITY,
+            writer.handle().clone(),
+            market_ids,
+        ),
+        None => RealtimeRuntime::spawn_default(),
+    });
     let app = build_router_with_runtime(config, storage_writer, realtime);
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
