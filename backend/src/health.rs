@@ -41,7 +41,10 @@ impl HealthResponse {
         let environment = config.environment.as_str();
         let database_configured = config.database_configured();
         let supported_markets = config.supported_markets.clone();
-        let storage_writer = state.storage_writer.as_ref().map(|writer| writer.snapshot());
+        let storage_writer = state
+            .storage_writer
+            .as_ref()
+            .map(|writer| writer.snapshot());
 
         Self {
             status: "ok",

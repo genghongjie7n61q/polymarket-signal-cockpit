@@ -168,7 +168,9 @@ async fn repository_queries_replay_ticks_by_market_window() {
         .expect("replay query");
 
     assert_eq!(replay.len(), 3);
-    assert!(replay.windows(2).all(|pair| pair[0].source_ts <= pair[1].source_ts));
+    assert!(replay
+        .windows(2)
+        .all(|pair| pair[0].source_ts <= pair[1].source_ts));
 }
 
 struct TestContext {
@@ -189,13 +191,12 @@ impl TestContext {
             return None;
         };
 
-        let pool = connect_pool(
-            &database_url,
-            PgPoolOptionsConfig { max_connections: 3 },
-        )
-        .await
-        .expect("test database should connect");
-        run_migrations(&pool).await.expect("migrations should apply");
+        let pool = connect_pool(&database_url, PgPoolOptionsConfig { max_connections: 3 })
+            .await
+            .expect("test database should connect");
+        run_migrations(&pool)
+            .await
+            .expect("migrations should apply");
 
         let suffix = Uuid::new_v4().to_string();
         let market_key = format!("test-btc5m-{suffix}");

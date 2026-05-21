@@ -119,7 +119,9 @@ where
             .insert_notification_delivery(&delivery)
             .await
             .map(|_| ()),
-        StorageCommand::RuntimeEvent(event) => repository.insert_runtime_event(&event).await.map(|_| ()),
+        StorageCommand::RuntimeEvent(event) => {
+            repository.insert_runtime_event(&event).await.map(|_| ())
+        }
     };
 
     match result {

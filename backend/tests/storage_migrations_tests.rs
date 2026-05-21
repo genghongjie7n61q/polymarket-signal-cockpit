@@ -13,12 +13,9 @@ async fn migrations_apply_and_core_tables_exist() {
         return;
     };
 
-    let pool = connect_pool(
-        &database_url,
-        PgPoolOptionsConfig { max_connections: 2 },
-    )
-    .await
-    .expect("test database should connect");
+    let pool = connect_pool(&database_url, PgPoolOptionsConfig { max_connections: 2 })
+        .await
+        .expect("test database should connect");
 
     run_migrations(&pool)
         .await
