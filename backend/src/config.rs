@@ -6,6 +6,8 @@ const DEFAULT_RUST_LOG: &str = "info";
 const DEFAULT_APP_HOST: &str = "127.0.0.1";
 const DEFAULT_APP_PORT: u16 = 8080;
 const DEFAULT_SUPPORTED_MARKETS: &[&str] = &["btc5m", "eth15m"];
+const DEFAULT_STORAGE_WRITER_QUEUE_CAPACITY: usize = 4096;
+const DEFAULT_STORAGE_WRITER_FLUSH_INTERVAL_MS: u64 = 250;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppConfig {
@@ -16,6 +18,8 @@ pub struct AppConfig {
     pub host: String,
     pub port: u16,
     pub supported_markets: Vec<String>,
+    pub storage_writer_queue_capacity: usize,
+    pub storage_writer_flush_interval_ms: u64,
 }
 
 impl AppConfig {
@@ -53,6 +57,16 @@ impl AppConfig {
             host: get_non_empty(&vars, "APP_HOST").unwrap_or_else(|| DEFAULT_APP_HOST.to_string()),
             port: parse_port(get_non_empty(&vars, "APP_PORT"))?,
             supported_markets: parse_supported_markets(get_non_empty(&vars, "SUPPORTED_MARKETS")),
+            storage_writer_queue_capacity: parse_usize(
+                get_non_empty(&vars, "STORAGE_WRITER_QUEUE_CAPACITY"),
+                "STORAGE_WRITER_QUEUE_CAPACITY",
+                DEFAULT_STORAGE_WRITER_QUEUE_CAPACITY,
+            )?,
+            storage_writer_flush_interval_ms: parse_u64(
+                get_non_empty(&vars, "STORAGE_WRITER_FLUSH_INTERVAL_MS"),
+                "STORAGE_WRITER_FLUSH_INTERVAL_MS",
+                DEFAULT_STORAGE_WRITER_FLUSH_INTERVAL_MS,
+            )?,
         })
     }
 
@@ -96,6 +110,8 @@ pub enum ConfigError {
     InvalidEnvironment(String),
     #[error("APP_PORT must be a TCP port number between 1 and 65535, got {0}")]
     InvalidPort(String),
+    #[error("{key} must be a positive integer, got {value}")]
+    InvalidPositiveInteger { key: &'static str, value: String },
 }
 
 fn get_non_empty(vars: &HashMap<String, String>, key: &str) -> Option<String> {
@@ -133,5 +149,31 @@ fn parse_port(value: Option<String>) -> Result<u16, ConfigError> {
             .filter(|port| *port > 0)
             .ok_or(ConfigError::InvalidPort(port)),
         None => Ok(DEFAULT_APP_PORT),
+    }
+}
+
+fn parse_usize(
+    value: Option<String>,
+    key: &'static str,
+    default: usize,
+) -> Result<usize, ConfigError> {
+    match value {
+        Some(value) => value
+            .parse::<usize>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or(ConfigError::InvalidPositiveInteger { key, value }),
+        None => Ok(default),
+    }
+}
+
+fn parse_u64(value: Option<String>, key: &'static str, default: u64) -> Result<u64, ConfigError> {
+    match value {
+        Some(value) => value
+            .parse::<u64>()
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or(ConfigError::InvalidPositiveInteger { key, value }),
+        None => Ok(default),
     }
 }

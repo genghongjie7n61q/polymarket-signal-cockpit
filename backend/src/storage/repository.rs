@@ -3,12 +3,16 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::storage::{
-    NewNotificationDelivery, NewRuntimeEvent, NewSignal, NewTick, ReplayTick, RuntimeEventRecord,
-    SignalRecord, StorageError, TickRecord,
+    NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+    RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageError, TickRecord,
 };
 
 #[async_trait]
 pub trait StorageRepository: Send + Sync {
+    async fn insert_raw_market_event(
+        &self,
+        event: &NewRawMarketEvent,
+    ) -> Result<RawMarketEventRecord, StorageError>;
     async fn insert_tick(&self, tick: &NewTick) -> Result<TickRecord, StorageError>;
     async fn insert_signal(&self, signal: &NewSignal) -> Result<SignalRecord, StorageError>;
     async fn insert_notification_delivery(
@@ -43,25 +47,96 @@ impl PostgresStorage {
 
 #[async_trait]
 impl StorageRepository for PostgresStorage {
+    async fn insert_raw_market_event(
+        &self,
+        event: &NewRawMarketEvent,
+    ) -> Result<RawMarketEventRecord, StorageError> {
+        let record = if event.source_event_id.is_some() {
+            sqlx::query_as::<_, RawMarketEventRecord>(
+                r#"
+                INSERT INTO raw_market_events (
+                    source, source_event_id, received_at, source_ts, payload
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (source, source_event_id) WHERE source_event_id IS NOT NULL
+                DO UPDATE SET
+                    received_at = EXCLUDED.received_at,
+                    source_ts = EXCLUDED.source_ts,
+                    payload = EXCLUDED.payload
+                RETURNING id, source, source_event_id, received_at, source_ts, payload
+                "#,
+            )
+            .bind(&event.source)
+            .bind(&event.source_event_id)
+            .bind(event.received_at)
+            .bind(event.source_ts)
+            .bind(&event.payload)
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, RawMarketEventRecord>(
+                r#"
+                INSERT INTO raw_market_events (
+                    source, source_event_id, received_at, source_ts, payload
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id, source, source_event_id, received_at, source_ts, payload
+                "#,
+            )
+            .bind(&event.source)
+            .bind(&event.source_event_id)
+            .bind(event.received_at)
+            .bind(event.source_ts)
+            .bind(&event.payload)
+            .fetch_one(&self.pool)
+            .await?
+        };
+
+        Ok(record)
+    }
+
     async fn insert_tick(&self, tick: &NewTick) -> Result<TickRecord, StorageError> {
-        let record = sqlx::query_as::<_, TickRecord>(
-            r#"
-            INSERT INTO ticks (market_id, source, source_ts, received_at, price, size, sequence)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT (market_id, source, source_ts, price, (COALESCE(sequence, -1)))
-            DO UPDATE SET received_at = EXCLUDED.received_at
-            RETURNING id, market_id, source, source_ts, received_at, price, size, sequence
-            "#,
-        )
-        .bind(tick.market_id)
-        .bind(&tick.source)
-        .bind(tick.source_ts)
-        .bind(tick.received_at)
-        .bind(&tick.price)
-        .bind(&tick.size)
-        .bind(tick.sequence)
-        .fetch_one(&self.pool)
-        .await?;
+        let record = if tick.sequence.is_some() {
+            sqlx::query_as::<_, TickRecord>(
+                r#"
+                INSERT INTO ticks (market_id, source, source_ts, received_at, price, size, sequence)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (market_id, source, sequence) WHERE sequence IS NOT NULL
+                DO UPDATE SET
+                    source_ts = EXCLUDED.source_ts,
+                    received_at = EXCLUDED.received_at,
+                    price = EXCLUDED.price,
+                    size = EXCLUDED.size
+                RETURNING id, market_id, source, source_ts, received_at, price, size, sequence
+                "#,
+            )
+            .bind(tick.market_id)
+            .bind(&tick.source)
+            .bind(tick.source_ts)
+            .bind(tick.received_at)
+            .bind(&tick.price)
+            .bind(&tick.size)
+            .bind(tick.sequence)
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, TickRecord>(
+                r#"
+                INSERT INTO ticks (market_id, source, source_ts, received_at, price, size, sequence)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING id, market_id, source, source_ts, received_at, price, size, sequence
+                "#,
+            )
+            .bind(tick.market_id)
+            .bind(&tick.source)
+            .bind(tick.source_ts)
+            .bind(tick.received_at)
+            .bind(&tick.price)
+            .bind(&tick.size)
+            .bind(tick.sequence)
+            .fetch_one(&self.pool)
+            .await?
+        };
 
         Ok(record)
     }

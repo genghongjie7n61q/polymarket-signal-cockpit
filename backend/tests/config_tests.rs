@@ -20,6 +20,8 @@ fn local_config_uses_safe_defaults_when_environment_is_empty() {
     assert_eq!(config.port, 8080);
     assert_eq!(config.database_url, None);
     assert_eq!(config.supported_markets, vec!["btc5m", "eth15m"]);
+    assert_eq!(config.storage_writer_queue_capacity, 4096);
+    assert_eq!(config.storage_writer_flush_interval_ms, 250);
     assert!(!config.database_configured());
 }
 
@@ -41,6 +43,8 @@ fn config_parses_explicit_values_and_supported_markets() {
         ("APP_HOST", "0.0.0.0"),
         ("APP_PORT", "9090"),
         ("SUPPORTED_MARKETS", " btc5m, eth15m ,, sol15m "),
+        ("STORAGE_WRITER_QUEUE_CAPACITY", "128"),
+        ("STORAGE_WRITER_FLUSH_INTERVAL_MS", "25"),
     ]))
     .expect("explicit production config should be valid");
 
@@ -51,6 +55,8 @@ fn config_parses_explicit_values_and_supported_markets() {
     assert_eq!(config.host, "0.0.0.0");
     assert_eq!(config.port, 9090);
     assert_eq!(config.supported_markets, vec!["btc5m", "eth15m", "sol15m"]);
+    assert_eq!(config.storage_writer_queue_capacity, 128);
+    assert_eq!(config.storage_writer_flush_interval_ms, 25);
     assert!(config.database_configured());
 }
 
@@ -60,4 +66,18 @@ fn config_rejects_invalid_port() {
         .expect_err("invalid port should be rejected");
 
     assert!(matches!(error, ConfigError::InvalidPort(_)));
+}
+
+#[test]
+fn config_rejects_invalid_storage_writer_values() {
+    let error = AppConfig::from_env_map(env(&[("STORAGE_WRITER_QUEUE_CAPACITY", "0")]))
+        .expect_err("zero writer queue capacity should be rejected");
+
+    assert!(matches!(
+        error,
+        ConfigError::InvalidPositiveInteger {
+            key: "STORAGE_WRITER_QUEUE_CAPACITY",
+            ..
+        }
+    ));
 }

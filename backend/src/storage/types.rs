@@ -23,6 +23,25 @@ pub struct MarketRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NewRawMarketEvent {
+    pub source: String,
+    pub source_event_id: Option<String>,
+    pub received_at: OffsetDateTime,
+    pub source_ts: Option<OffsetDateTime>,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+pub struct RawMarketEventRecord {
+    pub id: Uuid,
+    pub source: String,
+    pub source_event_id: Option<String>,
+    pub received_at: OffsetDateTime,
+    pub source_ts: Option<OffsetDateTime>,
+    pub payload: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewTick {
     pub market_id: Uuid,
     pub source: String,

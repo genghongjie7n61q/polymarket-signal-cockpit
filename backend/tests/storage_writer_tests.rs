@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicI64, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -8,8 +8,9 @@ use std::{
 
 use async_trait::async_trait;
 use polymarket_backend::storage::{
-    NewNotificationDelivery, NewRuntimeEvent, NewSignal, NewTick, ReplayTick, RuntimeEventRecord,
-    SignalRecord, StorageCommand, StorageError, StorageRepository, StorageWriter, TickRecord,
+    NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+    RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageCommand,
+    StorageError, StorageRepository, StorageWriter, TickRecord,
 };
 use serde_json::json;
 use time::OffsetDateTime;
@@ -24,7 +25,7 @@ async fn storage_writer_try_enqueue_does_not_block_when_capacity_available() {
         .try_enqueue(StorageCommand::RuntimeEvent(runtime_event()))
         .expect("enqueue should succeed");
 
-    tokio::time::sleep(Duration::from_millis(40)).await;
+    wait_until(Duration::from_secs(1), || handle.snapshot().written == 1).await;
     let snapshot = handle.snapshot();
 
     assert_eq!(snapshot.accepted, 1);
@@ -69,15 +70,68 @@ async fn storage_writer_records_failed_database_writes() {
         .try_enqueue(StorageCommand::RuntimeEvent(runtime_event()))
         .expect("enqueue should succeed");
 
-    tokio::time::sleep(Duration::from_millis(40)).await;
+    wait_until(Duration::from_secs(1), || handle.snapshot().failed == 1).await;
     let snapshot = handle.snapshot();
 
     assert_eq!(snapshot.accepted, 1);
     assert_eq!(snapshot.written, 0);
     assert_eq!(snapshot.failed, 1);
+    assert_eq!(snapshot.retried, 2);
 
     drop(handle);
-    join.abort();
+    join.await
+        .expect("writer should stop after handle is dropped");
+}
+
+#[tokio::test]
+async fn storage_writer_retries_transient_failures_before_counting_written() {
+    let repo = Arc::new(FakeRepository::failing_first(2));
+    let (handle, join) = StorageWriter::spawn(repo, 4, Duration::from_millis(1));
+
+    handle
+        .try_enqueue(StorageCommand::RuntimeEvent(runtime_event()))
+        .expect("enqueue should succeed");
+
+    wait_until(Duration::from_millis(250), || {
+        handle.snapshot().written == 1
+    })
+    .await;
+    let snapshot = handle.snapshot();
+
+    assert_eq!(snapshot.accepted, 1);
+    assert_eq!(snapshot.written, 1);
+    assert_eq!(snapshot.failed, 0);
+    assert_eq!(snapshot.retried, 2);
+
+    drop(handle);
+    join.await
+        .expect("writer should stop after handle is dropped");
+}
+
+#[tokio::test]
+async fn storage_writer_exits_when_last_handle_is_dropped() {
+    let repo = Arc::new(FakeRepository::default());
+    let (handle, join) = StorageWriter::spawn(repo, 4, Duration::from_millis(10));
+
+    drop(handle);
+
+    tokio::time::timeout(Duration::from_millis(100), join)
+        .await
+        .expect("writer should exit promptly")
+        .expect("writer task should finish cleanly");
+}
+
+async fn wait_until<F>(timeout: Duration, condition: F)
+where
+    F: Fn() -> bool,
+{
+    let started_at = tokio::time::Instant::now();
+    while started_at.elapsed() < timeout {
+        if condition() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
 }
 
 fn runtime_event() -> NewRuntimeEvent {
@@ -93,15 +147,19 @@ fn runtime_event() -> NewRuntimeEvent {
 #[derive(Default)]
 struct FakeRepository {
     runtime_events: AtomicU64,
-    fail: AtomicBool,
+    failures_remaining: AtomicI64,
     delay: Option<Duration>,
 }
 
 impl FakeRepository {
     fn failing() -> Self {
+        Self::failing_first(3)
+    }
+
+    fn failing_first(count: i64) -> Self {
         Self {
             runtime_events: AtomicU64::new(0),
-            fail: AtomicBool::new(true),
+            failures_remaining: AtomicI64::new(count),
             delay: None,
         }
     }
@@ -109,7 +167,7 @@ impl FakeRepository {
     fn with_delay(delay: Duration) -> Self {
         Self {
             runtime_events: AtomicU64::new(0),
-            fail: AtomicBool::new(false),
+            failures_remaining: AtomicI64::new(0),
             delay: Some(delay),
         }
     }
@@ -119,7 +177,8 @@ impl FakeRepository {
             tokio::time::sleep(delay).await;
         }
 
-        if self.fail.load(Ordering::Relaxed) {
+        let previous_failures = self.failures_remaining.fetch_sub(1, Ordering::Relaxed);
+        if previous_failures > 0 {
             Err(StorageError::InvalidInput("forced failure".to_string()))
         } else {
             Ok(())
@@ -129,6 +188,21 @@ impl FakeRepository {
 
 #[async_trait]
 impl StorageRepository for FakeRepository {
+    async fn insert_raw_market_event(
+        &self,
+        event: &NewRawMarketEvent,
+    ) -> Result<RawMarketEventRecord, StorageError> {
+        self.maybe_fail().await?;
+        Ok(RawMarketEventRecord {
+            id: Uuid::new_v4(),
+            source: event.source.clone(),
+            source_event_id: event.source_event_id.clone(),
+            received_at: event.received_at,
+            source_ts: event.source_ts,
+            payload: event.payload.clone(),
+        })
+    }
+
     async fn insert_tick(&self, tick: &NewTick) -> Result<TickRecord, StorageError> {
         self.maybe_fail().await?;
         Ok(TickRecord {

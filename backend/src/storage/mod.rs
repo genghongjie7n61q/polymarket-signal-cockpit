@@ -8,4 +8,6 @@ pub use error::StorageError;
 pub use pool::{connect_pool, run_migrations, PgPoolOptionsConfig};
 pub use repository::{PostgresStorage, StorageRepository};
 pub use types::*;
-pub use writer::{StorageCommand, StorageWriter, StorageWriterHandle, StorageWriterSnapshot};
+pub use writer::{
+    StorageCommand, StorageWriter, StorageWriterHandle, StorageWriterRuntime, StorageWriterSnapshot,
+};

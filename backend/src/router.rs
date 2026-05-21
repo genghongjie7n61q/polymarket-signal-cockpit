@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use axum::{routing::get, Router};
 
-use crate::{config::AppConfig, health::healthz, storage::StorageWriterHandle};
+use crate::{config::AppConfig, health::healthz, storage::StorageWriterRuntime};
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: Arc<AppConfig>,
-    pub storage_writer: Option<StorageWriterHandle>,
+    pub storage_writer: Option<StorageWriterRuntime>,
 }
 
 pub fn build_router(config: AppConfig) -> Router {
@@ -16,7 +16,7 @@ pub fn build_router(config: AppConfig) -> Router {
 
 pub fn build_router_with_storage(
     config: AppConfig,
-    storage_writer: Option<StorageWriterHandle>,
+    storage_writer: Option<StorageWriterRuntime>,
 ) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
