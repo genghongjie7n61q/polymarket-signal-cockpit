@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+target/
 
 # Runtime outputs
 reports/*.json
@@ -14,6 +15,7 @@ run/
 # Local secrets and deployment overrides
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 

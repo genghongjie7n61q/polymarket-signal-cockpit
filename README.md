@@ -36,6 +36,44 @@ Run tests:
 python3 -m unittest tests/test_eth_15m_platform.py
 ```
 
+## Rust Backend Baseline
+
+Run backend tests:
+
+```bash
+cargo test
+```
+
+Run the backend locally:
+
+```bash
+POLY_ENV=local \
+APP_HOST=127.0.0.1 \
+APP_PORT=8080 \
+cargo run -p polymarket-backend
+```
+
+Check the health endpoint:
+
+```bash
+curl -fsS http://127.0.0.1:8080/healthz
+```
+
+Local development with containers:
+
+```bash
+cp .env.example .env
+# Edit .env and replace POSTGRES_PASSWORD / DATABASE_URL with a local random password.
+docker compose config
+docker compose up --build -d
+docker compose ps
+docker compose logs --tail=100 backend
+curl -fsS http://127.0.0.1:8080/healthz
+docker compose down
+```
+
+The backend fails fast when `POLY_ENV=production` and `DATABASE_URL` is missing. Real webhook values belong only in local `.env` files and must not be committed.
+
 ## Target Architecture
 
 See [docs/architecture.md](docs/architecture.md) for the proposed platform architecture and [docs/model-plugin-api.md](docs/model-plugin-api.md) for the model plugin contract.
