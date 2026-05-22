@@ -626,7 +626,7 @@ impl StorageRepository for PostgresStorage {
             WITH inserted AS (
                 INSERT INTO backtest_runs (
                     model_version_id, market_id, finished_at, window_start,
-                    window_end, metrics, status
+                    window_end, metrics, status, parameters
                 )
                 VALUES (
                     $1,
@@ -635,10 +635,11 @@ impl StorageRepository for PostgresStorage {
                     $3,
                     $4,
                     $5,
-                    $6
+                    $6,
+                    $7
                 )
                 RETURNING id, model_version_id, market_id, started_at, finished_at,
-                    window_start, window_end, metrics, status
+                    window_start, window_end, metrics, status, parameters
             )
             SELECT
                 inserted.id,
@@ -646,7 +647,7 @@ impl StorageRepository for PostgresStorage {
                 mo.model_key,
                 mo.display_name,
                 mv.version AS model_version,
-                mv.parameters,
+                inserted.parameters,
                 inserted.started_at,
                 inserted.finished_at,
                 inserted.window_start,
@@ -665,6 +666,7 @@ impl StorageRepository for PostgresStorage {
         .bind(run.window_end)
         .bind(&run.metrics)
         .bind(&run.status)
+        .bind(&run.parameters)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -687,7 +689,7 @@ impl StorageRepository for PostgresStorage {
                 mo.model_key,
                 mo.display_name,
                 mv.version AS model_version,
-                mv.parameters,
+                br.parameters,
                 br.started_at,
                 br.finished_at,
                 br.window_start,

@@ -117,6 +117,10 @@ fn eligibility_requires_enough_recent_trades_wilson_floor_and_coverage() {
         min_trades: 20,
         min_wilson_lower_bound: "0.55".parse().unwrap(),
         min_coverage: "0.20".parse().unwrap(),
+        min_expected_value: "0".parse().unwrap(),
+        max_drawdown: "5".parse().unwrap(),
+        max_consecutive_losses: 5,
+        max_average_price_paid: "0.70".parse().unwrap(),
     };
     let result = replay_backtest(
         "baseline_direction",
@@ -133,6 +137,50 @@ fn eligibility_requires_enough_recent_trades_wilson_floor_and_coverage() {
         .reasons
         .iter()
         .any(|reason| reason.contains("min_trades")));
+}
+
+#[test]
+fn eligibility_rejects_negative_ev_and_excessive_risk_even_when_stats_pass() {
+    let mut result = replay_backtest(
+        "baseline_direction",
+        "0.1.0",
+        "btc5m:test",
+        json!({}),
+        &sample_windows(),
+    );
+    result.metrics.trades = 30;
+    result.metrics.wilson_lower_bound = "0.60".parse().unwrap();
+    result.metrics.coverage = "0.50".parse().unwrap();
+    result.metrics.expected_value = "-0.01".parse().unwrap();
+    result.metrics.max_drawdown = "8".parse().unwrap();
+    result.metrics.max_consecutive_losses = 6;
+    result.metrics.average_price_paid = "0.72".parse().unwrap();
+
+    let policy = BacktestEligibilityPolicy {
+        min_trades: 20,
+        min_wilson_lower_bound: "0.55".parse().unwrap(),
+        min_coverage: "0.20".parse().unwrap(),
+        min_expected_value: "0".parse().unwrap(),
+        max_drawdown: "5".parse().unwrap(),
+        max_consecutive_losses: 5,
+        max_average_price_paid: "0.70".parse().unwrap(),
+    };
+
+    let eligibility = result.metrics.production_eligibility(&policy);
+
+    assert!(!eligibility.eligible);
+    assert!(eligibility
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("min_expected_value")));
+    assert!(eligibility
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("max_drawdown")));
+    assert!(eligibility
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("max_average_price_paid")));
 }
 
 fn sample_windows() -> Vec<ReplayWindow> {

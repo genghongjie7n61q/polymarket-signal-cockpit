@@ -579,6 +579,60 @@ async fn repository_inserts_and_lists_backtest_runs() {
     ctx.cleanup().await;
 }
 
+#[tokio::test]
+async fn repository_preserves_backtest_run_parameter_snapshots() {
+    let ctx = TestContext::create().await;
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let model_key = format!("snapshot-baseline-{}", ctx.suffix);
+
+    let first = storage
+        .insert_backtest_run(&NewBacktestRun {
+            market_key: ctx.market_key.clone(),
+            model_key: model_key.clone(),
+            display_name: "Snapshot Baseline".to_string(),
+            model_version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 4}),
+            window_start: ctx.window_start,
+            window_end: ctx.window_start + Duration::minutes(5),
+            metrics: json!({"trades": 4, "wins": 3}),
+            status: "completed".to_string(),
+        })
+        .await
+        .expect("first backtest run");
+    let second = storage
+        .insert_backtest_run(&NewBacktestRun {
+            market_key: ctx.market_key.clone(),
+            model_key: model_key.clone(),
+            display_name: "Snapshot Baseline".to_string(),
+            model_version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 8}),
+            window_start: ctx.window_start + Duration::minutes(5),
+            window_end: ctx.window_start + Duration::minutes(10),
+            metrics: json!({"trades": 5, "wins": 4}),
+            status: "completed".to_string(),
+        })
+        .await
+        .expect("second backtest run");
+
+    let runs = storage
+        .latest_backtest_runs(Some(&ctx.market_key), Some(&model_key), 10)
+        .await
+        .expect("latest runs");
+    let first_record = runs
+        .iter()
+        .find(|run| run.id == first.id)
+        .expect("first run should still be listed");
+    let second_record = runs
+        .iter()
+        .find(|run| run.id == second.id)
+        .expect("second run should be listed");
+
+    assert_eq!(first_record.parameters, json!({"threshold_bps": 4}));
+    assert_eq!(second_record.parameters, json!({"threshold_bps": 8}));
+
+    ctx.cleanup().await;
+}
+
 struct TestContext {
     pool: PgPool,
     suffix: String,

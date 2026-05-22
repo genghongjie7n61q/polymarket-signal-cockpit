@@ -91,6 +91,10 @@ pub struct BacktestEligibilityPolicy {
     pub min_trades: u64,
     pub min_wilson_lower_bound: BigDecimal,
     pub min_coverage: BigDecimal,
+    pub min_expected_value: BigDecimal,
+    pub max_drawdown: BigDecimal,
+    pub max_consecutive_losses: u64,
+    pub max_average_price_paid: BigDecimal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,6 +125,30 @@ impl BacktestMetrics {
             reasons.push(format!(
                 "min_coverage not met: {} < {}",
                 self.coverage, policy.min_coverage
+            ));
+        }
+        if self.expected_value < policy.min_expected_value {
+            reasons.push(format!(
+                "min_expected_value not met: {} < {}",
+                self.expected_value, policy.min_expected_value
+            ));
+        }
+        if self.max_drawdown > policy.max_drawdown {
+            reasons.push(format!(
+                "max_drawdown exceeded: {} > {}",
+                self.max_drawdown, policy.max_drawdown
+            ));
+        }
+        if self.max_consecutive_losses > policy.max_consecutive_losses {
+            reasons.push(format!(
+                "max_consecutive_losses exceeded: {} > {}",
+                self.max_consecutive_losses, policy.max_consecutive_losses
+            ));
+        }
+        if self.average_price_paid > policy.max_average_price_paid {
+            reasons.push(format!(
+                "max_average_price_paid exceeded: {} > {}",
+                self.average_price_paid, policy.max_average_price_paid
             ));
         }
 
