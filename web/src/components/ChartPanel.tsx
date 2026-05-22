@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { CandlestickSeries, createChart, type IChartApi, type UTCTimestamp } from "lightweight-charts";
+import { dateTimeToMillis } from "../api/time";
 import type { Candle, CockpitMarket } from "../api/types";
 
 export interface ChartPanelProps {
@@ -8,7 +9,7 @@ export interface ChartPanelProps {
 
 function toSeriesData(candles: Candle[]) {
   return candles.map((candle) => ({
-    time: Math.floor(Date.parse(candle.start_ts) / 1000) as UTCTimestamp,
+    time: Math.floor((dateTimeToMillis(candle.start_ts) ?? 0) / 1000) as UTCTimestamp,
     open: Number(candle.open),
     high: Number(candle.high),
     low: Number(candle.low),

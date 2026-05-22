@@ -1,7 +1,9 @@
+import type { DateTimeValue } from "./time";
+
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export interface CockpitBootstrapResponse {
-  generated_at: string;
+  generated_at: DateTimeValue;
   markets: CockpitMarket[];
   runtime: RuntimeHealth;
 }
@@ -29,8 +31,8 @@ export interface MarketSummary {
 
 export interface MarketWindow {
   event_slug: string;
-  start_ts: string;
-  end_ts: string;
+  start_ts: DateTimeValue;
+  end_ts: DateTimeValue;
   open_price?: string | null;
   latest_price?: string | null;
   direction?: string | null;
@@ -39,8 +41,8 @@ export interface MarketWindow {
 export interface MarketTick {
   symbol: string;
   source: string;
-  source_ts: string;
-  received_at: string;
+  source_ts: DateTimeValue;
+  received_at: DateTimeValue;
   price: string;
   size: string | null;
   sequence: number | null;
@@ -48,7 +50,7 @@ export interface MarketTick {
 
 export interface PolymarketSnapshot {
   event_slug: string;
-  captured_at: string;
+  captured_at: DateTimeValue;
   up_price: string | null;
   down_price: string | null;
   spread: string | null;
@@ -56,7 +58,7 @@ export interface PolymarketSnapshot {
 }
 
 export interface Candle {
-  start_ts: string;
+  start_ts: DateTimeValue;
   open: string;
   high: string;
   low: string;
@@ -77,7 +79,7 @@ export interface Signal {
   reason: string;
   features: JsonValue;
   input_snapshot_hash: string;
-  created_at: string;
+  created_at: DateTimeValue;
 }
 
 export interface ModelAssignment {
@@ -87,7 +89,7 @@ export interface ModelAssignment {
   version: string;
   parameters: JsonValue;
   status: string;
-  created_at: string;
+  created_at: DateTimeValue;
 }
 
 export interface BacktestRun {
@@ -97,10 +99,10 @@ export interface BacktestRun {
   display_name: string;
   model_version: string;
   parameters: JsonValue;
-  started_at: string;
-  finished_at: string | null;
-  window_start: string;
-  window_end: string;
+  started_at: DateTimeValue;
+  finished_at: DateTimeValue | null;
+  window_start: DateTimeValue;
+  window_end: DateTimeValue;
   metrics: JsonValue;
   status: string;
 }
@@ -113,7 +115,7 @@ export interface NotificationChannel {
   webhook_url: null;
   webhook_url_masked: string;
   enabled: boolean;
-  created_at: string;
+  created_at: DateTimeValue;
 }
 
 export interface NotificationDelivery {
@@ -126,8 +128,8 @@ export interface NotificationDelivery {
   status: string;
   attempt_count: number;
   response_summary: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at: DateTimeValue;
+  updated_at: DateTimeValue;
 }
 
 export interface RuntimeHealth {
@@ -138,7 +140,7 @@ export interface RuntimeHealth {
 
 export interface MarketsSnapshotMessage {
   type: "snapshot";
-  generated_at: string;
+  generated_at: DateTimeValue;
   markets: MarketSummary[];
 }
 

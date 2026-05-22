@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchBootstrap } from "../api/client";
 import { openMarketsWebSocket, type MarketWebSocketHandle } from "../api/ws";
 import type { CockpitMarket, MarketSummary, RuntimeHealth } from "../api/types";
+import type { DateTimeValue } from "../api/time";
 
 export type ConnectionState = "idle" | "connecting" | "live" | "reconnecting" | "failed";
 
@@ -12,7 +13,7 @@ export interface CockpitDataState {
   selectedMarketKey: string | null;
   markets: CockpitMarket[];
   runtime: RuntimeHealth | null;
-  generatedAt: string | null;
+  generatedAt: DateTimeValue | null;
   selectMarket: (marketKey: string) => void;
   refresh: () => Promise<void>;
 }
@@ -76,7 +77,7 @@ export function useCockpitData({
   const [selectedMarketKey, setSelectedMarketKey] = useState<string | null>(null);
   const [markets, setMarkets] = useState<CockpitMarket[]>([]);
   const [runtime, setRuntime] = useState<RuntimeHealth | null>(null);
-  const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<DateTimeValue | null>(null);
   const wsRef = useRef<MarketWebSocketHandle | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);

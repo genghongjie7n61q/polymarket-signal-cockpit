@@ -1,10 +1,12 @@
 import type { RuntimeHealth } from "../api/types";
+import { formatDateTime } from "../api/time";
+import type { DateTimeValue } from "../api/time";
 import type { ConnectionState } from "../state/useCockpitData";
 import { StatusBadge } from "./StatusBadge";
 
 export interface RuntimeHeaderProps {
   connection: ConnectionState;
-  generatedAt: string | null;
+  generatedAt: DateTimeValue | null;
   runtime: RuntimeHealth | null;
 }
 
@@ -44,7 +46,7 @@ export function RuntimeHeader({ connection, generatedAt, runtime }: RuntimeHeade
       <div className="runtime-metrics" aria-label="runtime status">
         <StatusBadge label={status.label} tone={status.tone} />
         <span>WS {connection}</span>
-        <span>{generatedAt ? `Updated ${new Date(generatedAt).toLocaleTimeString()}` : "Waiting for data"}</span>
+        <span>{generatedAt ? `Updated ${formatDateTime(generatedAt)}` : "Waiting for data"}</span>
         <span>{sources.length > 0 ? sources.join(" / ") : "sources unknown"}</span>
       </div>
     </header>

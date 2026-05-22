@@ -1,6 +1,9 @@
 use axum::{
     body::{Body, to_bytes},
-    http::{Request, StatusCode, header::CONTENT_TYPE},
+    http::{
+        Request, StatusCode,
+        header::{ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_REQUEST_METHOD, CONTENT_TYPE, ORIGIN},
+    },
 };
 use polymarket_backend::{
     config::AppConfig,
@@ -28,6 +31,30 @@ use std::{
 use time::OffsetDateTime;
 use tower::ServiceExt;
 use uuid::Uuid;
+
+#[tokio::test]
+async fn api_cors_allows_web_cockpit_origin() {
+    let app = build_test_app_with_tick().await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("OPTIONS")
+                .uri("/api/markets")
+                .header(ORIGIN, "http://192.168.103.157:25173")
+                .header(ACCESS_CONTROL_REQUEST_METHOD, "GET")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get(ACCESS_CONTROL_ALLOW_ORIGIN),
+        Some(&"*".parse().expect("wildcard origin header"))
+    );
+}
 
 #[tokio::test]
 async fn markets_api_returns_supported_markets_with_live_state() {

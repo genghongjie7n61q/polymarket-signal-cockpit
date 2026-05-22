@@ -25,6 +25,7 @@ thiserror = "1"
 time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
 tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1", features = ["v4", "serde"] }

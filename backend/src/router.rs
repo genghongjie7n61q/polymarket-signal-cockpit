@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{routing::get, Router};
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     api::api_router,
@@ -61,9 +62,15 @@ pub fn build_router_with_runtime_storage_and_notification(
     storage: Option<Arc<dyn StorageRepository>>,
     notification: Option<NotificationRuntime>,
 ) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     Router::new()
         .route("/healthz", get(healthz))
         .nest("/api", api_router())
+        .layer(cors)
         .with_state(AppState {
             config: Arc::new(config),
             storage_writer,

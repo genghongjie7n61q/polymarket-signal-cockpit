@@ -1,4 +1,5 @@
 import type { CockpitMarket, Signal } from "../api/types";
+import { dateTimeToMillis, formatDateTime } from "../api/time";
 
 export interface SignalsTabProps {
   market: CockpitMarket;
@@ -10,7 +11,7 @@ function signalsFor(market: CockpitMarket): Array<{ label: string; signal: Signa
     market.latest_signal ? { label: "Live Signal", signal: market.latest_signal } : null,
   ]
     .filter((item): item is { label: string; signal: Signal } => item !== null)
-    .sort((left, right) => Date.parse(right.signal.created_at) - Date.parse(left.signal.created_at));
+    .sort((left, right) => (dateTimeToMillis(right.signal.created_at) ?? 0) - (dateTimeToMillis(left.signal.created_at) ?? 0));
 }
 
 export function SignalsTab({ market }: SignalsTabProps) {
@@ -27,7 +28,7 @@ export function SignalsTab({ market }: SignalsTabProps) {
           <span>{label}</span>
           <strong>{signal.side ?? "-"}</strong>
           <span>{signal.limit_price ?? "-"}</span>
-          <span>{signal.created_at}</span>
+          <span>{formatDateTime(signal.created_at)}</span>
         </div>
       ))}
     </div>
