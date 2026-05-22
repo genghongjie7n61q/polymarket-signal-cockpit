@@ -2,7 +2,7 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     realtime::MarketKey,
     storage::{
-        connect_pool, run_migrations, NewModelAssignment, NewNotificationChannel,
+        connect_pool, run_migrations, NewBacktestRun, NewModelAssignment, NewNotificationChannel,
         NewNotificationDelivery, NewRawMarketEvent, NewSignal, NewTick, PgPoolOptionsConfig,
         PostgresStorage, StorageRepository,
     },
@@ -543,6 +543,42 @@ async fn repository_lists_and_upserts_notification_channels_by_market() {
     ctx.cleanup().await;
 }
 
+#[tokio::test]
+async fn repository_inserts_and_lists_backtest_runs() {
+    let ctx = TestContext::create().await;
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let model_key = format!("backtest-baseline-{}", ctx.suffix);
+
+    let inserted = storage
+        .insert_backtest_run(&NewBacktestRun {
+            market_key: ctx.market_key.clone(),
+            model_key: model_key.clone(),
+            display_name: "Backtest Baseline".to_string(),
+            model_version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 4}),
+            window_start: ctx.window_start,
+            window_end: ctx.window_start + Duration::minutes(5),
+            metrics: json!({"trades": 3, "wins": 2, "eligible": false}),
+            status: "completed".to_string(),
+        })
+        .await
+        .expect("insert backtest run");
+
+    let runs = storage
+        .latest_backtest_runs(Some(&ctx.market_key), Some(&model_key), 10)
+        .await
+        .expect("latest runs");
+
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].id, inserted.id);
+    assert_eq!(runs[0].market_key, ctx.market_key);
+    assert_eq!(runs[0].model_key, model_key);
+    assert_eq!(runs[0].metrics["trades"], 3);
+    assert!(runs[0].finished_at.is_some());
+
+    ctx.cleanup().await;
+}
+
 struct TestContext {
     pool: PgPool,
     suffix: String,
@@ -690,6 +726,12 @@ impl TestContext {
     }
 
     async fn cleanup(&self) {
+        sqlx::query("DELETE FROM backtest_runs WHERE market_id = $1")
+            .bind(self.market_id)
+            .execute(&self.pool)
+            .await
+            .expect("backtest run cleanup");
+
         sqlx::query(
             r#"
             DELETE FROM notification_deliveries

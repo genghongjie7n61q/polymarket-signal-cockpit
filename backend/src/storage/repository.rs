@@ -6,10 +6,11 @@ use uuid::Uuid;
 use crate::{
     realtime::MarketKey,
     storage::{
-        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
-        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
-        SignalRecord, SignalWithMarketRecord, StorageError, TickRecord,
+        BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun,
+        NewModelAssignment, NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent,
+        NewRuntimeEvent, NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord,
+        ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageError,
+        TickRecord,
     },
 };
 
@@ -57,6 +58,16 @@ pub trait StorageRepository: Send + Sync {
         &self,
         channel: &NewNotificationChannel,
     ) -> Result<NotificationChannelRecord, StorageError>;
+    async fn insert_backtest_run(
+        &self,
+        run: &NewBacktestRun,
+    ) -> Result<BacktestRunRecord, StorageError>;
+    async fn latest_backtest_runs(
+        &self,
+        market_key: Option<&str>,
+        model_key: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<BacktestRunRecord>, StorageError>;
 }
 
 #[derive(Clone)]
@@ -566,5 +577,140 @@ impl StorageRepository for PostgresStorage {
         .await?;
 
         Ok(record)
+    }
+
+    async fn insert_backtest_run(
+        &self,
+        run: &NewBacktestRun,
+    ) -> Result<BacktestRunRecord, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        let market_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT id FROM markets WHERE market_key = $1
+            "#,
+        )
+        .bind(&run.market_key)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let model_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO models (model_key, display_name)
+            VALUES ($1, $2)
+            ON CONFLICT (model_key)
+            DO UPDATE SET display_name = EXCLUDED.display_name
+            RETURNING id
+            "#,
+        )
+        .bind(&run.model_key)
+        .bind(&run.display_name)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let model_version_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO model_versions (model_id, version, parameters)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (model_id, version)
+            DO UPDATE SET parameters = EXCLUDED.parameters
+            RETURNING id
+            "#,
+        )
+        .bind(model_id)
+        .bind(&run.model_version)
+        .bind(&run.parameters)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let record = sqlx::query_as::<_, BacktestRunRecord>(
+            r#"
+            WITH inserted AS (
+                INSERT INTO backtest_runs (
+                    model_version_id, market_id, finished_at, window_start,
+                    window_end, metrics, status
+                )
+                VALUES (
+                    $1,
+                    $2,
+                    CASE WHEN $6 = 'completed' THEN now() ELSE NULL END,
+                    $3,
+                    $4,
+                    $5,
+                    $6
+                )
+                RETURNING id, model_version_id, market_id, started_at, finished_at,
+                    window_start, window_end, metrics, status
+            )
+            SELECT
+                inserted.id,
+                m.market_key,
+                mo.model_key,
+                mo.display_name,
+                mv.version AS model_version,
+                mv.parameters,
+                inserted.started_at,
+                inserted.finished_at,
+                inserted.window_start,
+                inserted.window_end,
+                inserted.metrics,
+                inserted.status
+            FROM inserted
+            JOIN markets m ON m.id = inserted.market_id
+            JOIN model_versions mv ON mv.id = inserted.model_version_id
+            JOIN models mo ON mo.id = mv.model_id
+            "#,
+        )
+        .bind(model_version_id)
+        .bind(market_id)
+        .bind(run.window_start)
+        .bind(run.window_end)
+        .bind(&run.metrics)
+        .bind(&run.status)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(record)
+    }
+
+    async fn latest_backtest_runs(
+        &self,
+        market_key: Option<&str>,
+        model_key: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<BacktestRunRecord>, StorageError> {
+        let limit = limit.clamp(1, 100);
+        let runs = sqlx::query_as::<_, BacktestRunRecord>(
+            r#"
+            SELECT
+                br.id,
+                m.market_key,
+                mo.model_key,
+                mo.display_name,
+                mv.version AS model_version,
+                mv.parameters,
+                br.started_at,
+                br.finished_at,
+                br.window_start,
+                br.window_end,
+                br.metrics,
+                br.status
+            FROM backtest_runs br
+            JOIN markets m ON m.id = br.market_id
+            JOIN model_versions mv ON mv.id = br.model_version_id
+            JOIN models mo ON mo.id = mv.model_id
+            WHERE ($1::text IS NULL OR m.market_key = $1)
+              AND ($2::text IS NULL OR mo.model_key = $2)
+            ORDER BY br.started_at DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(market_key)
+        .bind(model_key)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(runs)
     }
 }
