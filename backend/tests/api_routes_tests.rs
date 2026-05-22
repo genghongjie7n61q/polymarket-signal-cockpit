@@ -273,6 +273,7 @@ async fn model_assignment_api_sets_active_assignment() {
                 .method("PUT")
                 .uri("/api/config/model-assignments/btc5m")
                 .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer test-admin-token")
                 .body(Body::from(
                     json!({
                         "model_key": "mean-reversion",
@@ -306,6 +307,33 @@ async fn model_assignment_api_sets_active_assignment() {
             .len(),
         1
     );
+}
+
+#[tokio::test]
+async fn model_assignment_api_rejects_missing_admin_token() {
+    let repository = ApiRepository::default();
+    let app = build_test_app_with_repository(repository).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/config/model-assignments/btc5m")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "model_key": "mean-reversion",
+                        "version": "0.2.0",
+                        "parameters": {}
+                    })
+                    .to_string(),
+                ))
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -356,6 +384,7 @@ async fn notification_channels_api_upserts_feishu_channel() {
                 .method("POST")
                 .uri("/api/config/notification-channels")
                 .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer test-admin-token")
                 .body(Body::from(
                     json!({
                         "market_key": "btc5m",
@@ -423,6 +452,10 @@ async fn build_test_app_with_repository(repository: ApiRepository) -> axum::Rout
         ("POLY_ENV".to_string(), "local".to_string()),
         ("APP_VERSION".to_string(), "test-version".to_string()),
         ("SUPPORTED_MARKETS".to_string(), "btc5m,eth15m".to_string()),
+        (
+            "ADMIN_API_TOKEN".to_string(),
+            "test-admin-token".to_string(),
+        ),
     ])
     .expect("test config should be valid");
 

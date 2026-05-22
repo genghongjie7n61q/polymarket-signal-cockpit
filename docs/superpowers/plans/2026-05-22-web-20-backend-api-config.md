@@ -35,7 +35,7 @@ Run on dev-2:
 podman run --rm --network host \
   -e CARGO_HOME=/cargo \
   -e CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
-  -e DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@127.0.0.1:15432/polymarket \
+  -e DATABASE_URL=$DATABASE_URL \
   -v "$HOME/.cache/polymarket-cargo/cargo":/cargo \
   -v "$HOME/.cache/polymarket-cargo/target":/workspace/target \
   -v "$PWD":/workspace -w /workspace \
@@ -181,9 +181,10 @@ Evidence on dev-2:
 Sync branch to `/opt/polymarket-signal-cockpit`, then restart intentional dev-2 stack:
 
 ```bash
-POSTGRES_PASSWORD=dev2-local-polymarket-password \
-DEV2_APP_PORT=8080 \
-podman-compose -f docker-compose.dev2.yml up -d --force-recreate backend
+set -a
+. ./.env
+set +a
+DEV2_APP_PORT=8080 podman-compose -f docker-compose.dev2.yml up -d --force-recreate backend
 ```
 
 - [x] **Step 2: Verify endpoints**

@@ -432,7 +432,7 @@ Run from local after pushing this task branch:
 ```bash
 ssh dev-2 'cd /opt/polymarket-signal-cockpit && git fetch origin codex/web-6-storage-foundation && git checkout codex/web-6-storage-foundation'
 ssh dev-2 'cd /opt/polymarket-signal-cockpit && podman-compose up -d postgres'
-ssh dev-2 'cd /opt/polymarket-signal-cockpit && DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@127.0.0.1:5432/polymarket cargo test -p polymarket-backend storage_migrations_tests -- --nocapture'
+ssh dev-2 'cd /opt/polymarket-signal-cockpit && DATABASE_URL=$DATABASE_URL cargo test -p polymarket-backend storage_migrations_tests -- --nocapture'
 ```
 
 Expected: migration test passes on dev-2.
@@ -850,7 +850,7 @@ Run:
 
 ```bash
 ssh dev-2 'cd /opt/polymarket-signal-cockpit && git fetch origin codex/web-6-storage-foundation && git checkout codex/web-6-storage-foundation'
-ssh dev-2 'cd /opt/polymarket-signal-cockpit && DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@127.0.0.1:5432/polymarket cargo test -p polymarket-backend storage_repository_tests -- --nocapture'
+ssh dev-2 'cd /opt/polymarket-signal-cockpit && DATABASE_URL=$DATABASE_URL cargo test -p polymarket-backend storage_repository_tests -- --nocapture'
 ```
 
 Expected: repository tests pass on dev-2.
@@ -1149,7 +1149,7 @@ podman-compose logs --tail=80 postgres
 ## Run Tests
 
 ```bash
-export DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@127.0.0.1:5432/polymarket
+export DATABASE_URL=$DATABASE_URL
 cargo test -p polymarket-backend storage_migrations_tests -- --nocapture
 cargo test -p polymarket-backend storage_repository_tests -- --nocapture
 cargo test -p polymarket-backend storage_writer_tests -- --nocapture
@@ -1232,7 +1232,7 @@ Run:
 ```bash
 ssh dev-2 'cd /opt/polymarket-signal-cockpit && git fetch origin codex/web-6-storage-foundation && git checkout codex/web-6-storage-foundation'
 ssh dev-2 'cd /opt/polymarket-signal-cockpit && podman-compose up -d postgres'
-ssh dev-2 'cd /opt/polymarket-signal-cockpit && export DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@127.0.0.1:5432/polymarket && cargo test -p polymarket-backend'
+ssh dev-2 'cd /opt/polymarket-signal-cockpit && export DATABASE_URL=$DATABASE_URL && cargo test -p polymarket-backend'
 ssh dev-2 'cd /opt/polymarket-signal-cockpit && podman-compose up -d --build backend'
 ssh dev-2 'curl -fsS http://192.168.103.157:8080/healthz'
 ssh dev-2 'cd /opt/polymarket-signal-cockpit && podman-compose logs --tail=120 backend'

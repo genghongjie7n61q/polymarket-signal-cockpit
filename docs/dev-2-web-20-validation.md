@@ -9,7 +9,9 @@ Target host: `dev-2`, health checked through `192.168.103.157`.
 All commands ran on `dev-2` in the Rust 1.87 container with:
 
 ```bash
-DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@127.0.0.1:15432/polymarket
+set -a
+. ./.env
+set +a
 ```
 
 Results:
@@ -33,9 +35,10 @@ Post-review fix validation:
 Synced the WEB-20 worktree to `/opt/polymarket-signal-cockpit`, then restarted the intentional dev-2 stack:
 
 ```bash
-POSTGRES_PASSWORD=dev2-local-polymarket-password \
-DEV2_APP_PORT=8080 \
-podman-compose -f docker-compose.dev2.yml up -d --force-recreate backend
+set -a
+. ./.env
+set +a
+DEV2_APP_PORT=8080 podman-compose -f docker-compose.dev2.yml up -d --force-recreate backend
 ```
 
 Container status:

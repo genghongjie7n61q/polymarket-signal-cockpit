@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::get,
     Json, Router,
 };
@@ -207,8 +207,10 @@ async fn list_model_assignments(
 async fn set_model_assignment(
     State(state): State<AppState>,
     Path(market_key): Path<String>,
+    headers: HeaderMap,
     Json(request): Json<SetModelAssignmentRequest>,
 ) -> Result<Json<ModelAssignmentDto>, StatusCode> {
+    require_admin_token(&state, &headers)?;
     let market_key = supported_market(&state, &market_key)?;
     let storage = state
         .storage
@@ -259,8 +261,10 @@ async fn list_notification_channels(
 
 async fn upsert_notification_channel(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<UpsertNotificationChannelRequest>,
 ) -> Result<Json<NotificationChannelDto>, StatusCode> {
+    require_admin_token(&state, &headers)?;
     let market_key = supported_market(&state, &request.market_key)?;
     let storage = state
         .storage
@@ -345,6 +349,27 @@ fn non_empty(value: String) -> Result<String, StatusCode> {
         Err(StatusCode::BAD_REQUEST)
     } else {
         Ok(value)
+    }
+}
+
+fn require_admin_token(state: &AppState, headers: &HeaderMap) -> Result<(), StatusCode> {
+    let expected = state
+        .config
+        .admin_api_token
+        .as_deref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let provided = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+
+    if provided == expected {
+        Ok(())
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
     }
 }
 

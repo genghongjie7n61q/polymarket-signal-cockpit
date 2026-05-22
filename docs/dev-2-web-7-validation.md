@@ -7,10 +7,13 @@ Date: 2026-05-21, updated 2026-05-22
 Backend tests:
 
 ```bash
+set -a
+. ./.env
+set +a
 podman run --rm --network host \
   -e CARGO_HOME=/cargo \
   -e CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
-  -e DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@127.0.0.1:15432/polymarket \
+  -e DATABASE_URL=$DATABASE_URL \
   -v "$HOME/.cache/polymarket-cargo/cargo":/cargo \
   -v "$HOME/.cache/polymarket-cargo/target":/workspace/target \
   -v "$PWD":/workspace \
@@ -19,7 +22,7 @@ podman run --rm --network host \
   cargo test -p polymarket-backend --locked
 ```
 
-Coinbase realtime smoke through dev-2 clash:
+Coinbase realtime smoke through operator-provided proxy:
 
 ```bash
 podman run -d --rm \
@@ -31,7 +34,7 @@ podman run -d --rm \
   -e APP_HOST=0.0.0.0 \
   -e APP_PORT=18082 \
   -e APP_VERSION=web7-coinbase-proxy-smoke \
-  -e COINBASE_WS_PROXY=http://127.0.0.1:7890 \
+  -e COINBASE_WS_PROXY=<operator-provided-http-proxy> \
   -v "$HOME/.cache/polymarket-cargo/cargo":/cargo \
   -v "$HOME/.cache/polymarket-cargo/target":/workspace/target \
   -v "$PWD":/workspace \
@@ -49,7 +52,7 @@ podman rm -f polymarket-backend-web7-smoke
 - `cargo test -p polymarket-backend --locked` passed again after adding the Polymarket Gamma/CLOB snapshot refresher, with `DATABASE_URL` pointed at the dev-2 Postgres port `127.0.0.1:15432`.
 - The Coinbase realtime smoke reached `realtime.bus.accepted=245`, `realtime.state.metrics.processed=245`, `sources.coinbase=fresh`, and `markets_tracked=2`.
 - The smoke container was removed after validation.
-- Read-only Polymarket API checks through clash reached:
+- Read-only Polymarket API checks through an operator-provided proxy reached:
   - Gamma event-by-slug: `https://gamma-api.polymarket.com/events/slug/{event_slug}`
   - CLOB prices: `https://clob.polymarket.com/prices`
 - After redeploying `docker-compose.dev2.yml`, `curl -fsS http://192.168.103.157:8080/healthz` reported `sources.coinbase=fresh`, `sources.polymarket=fresh`, `realtime.bus.accepted=111`, `realtime.state.metrics.processed=111`, and `storage_writer.written=95`.
@@ -58,22 +61,23 @@ podman rm -f polymarket-backend-web7-smoke
 ## Network Findings
 
 - Direct dev-2 access to `https://ws-feed.exchange.coinbase.com`, `https://advanced-trade-ws.coinbase.com`, Binance, Kraken, and OKX public endpoints timed out.
-- dev-2 host access through clash at `http://127.0.0.1:7890` reached Coinbase.
-- A container on `polymarket-signal-cockpit_default` could not reach host-local clash because clash listens on `127.0.0.1`.
-- The successful smoke therefore used `--network host` and `COINBASE_WS_PROXY=http://127.0.0.1:7890`.
+- dev-2 host access through an operator-provided proxy at `<operator-provided-http-proxy>` reached Coinbase.
+- A container on `polymarket-signal-cockpit_default` could not reach host-local proxy because proxy listens on `127.0.0.1`.
+- The successful smoke therefore used `--network host` and `COINBASE_WS_PROXY=<operator-provided-http-proxy>`.
 
 ## Follow-up
 
 - Chosen dev-2 deployment scheme: use `docker-compose.dev2.yml`.
-  - `backend` runs with `network_mode: host`, so `COINBASE_WS_PROXY=http://127.0.0.1:7890` and `POLYMARKET_HTTP_PROXY=http://127.0.0.1:7890` reach host-local clash without exposing clash to the LAN.
+  - `backend` runs with `network_mode: host`; optional proxy variables such as `COINBASE_WS_PROXY` and `POLYMARKET_HTTP_PROXY` must be supplied explicitly in the uncommitted dev-2 `.env` file when an operator-approved read-only data proxy is needed.
   - `postgres` remains containerized and publishes only `127.0.0.1:15432`.
   - `DATABASE_URL` points to `127.0.0.1:15432` from the host-network backend.
 - Start dev-2 stack:
 
 ```bash
-POSTGRES_PASSWORD=dev2-local-polymarket-password \
-DEV2_APP_PORT=8080 \
-podman-compose -f docker-compose.dev2.yml up -d
+set -a
+. ./.env
+set +a
+DEV2_APP_PORT=8080 podman-compose -f docker-compose.dev2.yml up -d
 
 curl -fsS http://192.168.103.157:8080/healthz
 ```

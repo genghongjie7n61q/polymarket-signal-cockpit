@@ -20,6 +20,7 @@ pub struct AppConfig {
     pub supported_markets: Vec<String>,
     pub storage_writer_queue_capacity: usize,
     pub storage_writer_flush_interval_ms: u64,
+    pub admin_api_token: Option<String>,
 }
 
 impl AppConfig {
@@ -67,6 +68,7 @@ impl AppConfig {
                 "STORAGE_WRITER_FLUSH_INTERVAL_MS",
                 DEFAULT_STORAGE_WRITER_FLUSH_INTERVAL_MS,
             )?,
+            admin_api_token: get_non_empty(&vars, "ADMIN_API_TOKEN"),
         })
     }
 

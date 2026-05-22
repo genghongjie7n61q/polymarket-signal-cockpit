@@ -30,7 +30,7 @@ Run on dev-2:
 
 ```bash
 podman run --rm --network polymarket-signal-cockpit_default \
-  -e DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@postgres:5432/polymarket \
+  -e DATABASE_URL=$DATABASE_URL \
   -v "$PWD":/workspace -w /workspace rust:1.87-bookworm \
   cargo test -p polymarket-backend --test realtime_normalization_tests
 ```
@@ -79,7 +79,7 @@ Run:
 
 ```bash
 podman run --rm --network polymarket-signal-cockpit_default \
-  -e DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@postgres:5432/polymarket \
+  -e DATABASE_URL=$DATABASE_URL \
   -v "$PWD":/workspace -w /workspace rust:1.87-bookworm \
   cargo test -p polymarket-backend --test realtime_state_tests
 ```
@@ -143,7 +143,7 @@ Run full backend tests on dev-2:
 
 ```bash
 podman run --rm --network polymarket-signal-cockpit_default \
-  -e DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@postgres:5432/polymarket \
+  -e DATABASE_URL=$DATABASE_URL \
   -v "$PWD":/workspace -w /workspace rust:1.87-bookworm \
   cargo test -p polymarket-backend
 ```
@@ -219,8 +219,8 @@ Add:
 - [x] **Step 3: Wire runtime and verify on dev-2**
 
 Run backend tests inside the dev-2 Rust container, then redeploy the dev-2 compose stack with:
-- `COINBASE_WS_PROXY=http://127.0.0.1:7890`
-- `POLYMARKET_HTTP_PROXY=http://127.0.0.1:7890`
+- `COINBASE_WS_PROXY=<operator-provided-http-proxy>`
+- `POLYMARKET_HTTP_PROXY=<operator-provided-http-proxy>`
 
 Observed:
 - `/healthz` at `http://192.168.103.157:8080/healthz` reports `sources.polymarket=fresh`.
