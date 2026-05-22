@@ -2,12 +2,13 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use polymarket_backend::{
     config::AppConfig,
+    notification::{HttpNotificationSender, NotificationRuntime, NotificationRuntimeConfig},
     realtime::{
         run_coinbase_ws_collector_until, run_polymarket_snapshot_refresher_until,
         CoinbaseCollectorConfig, MarketKey, PolymarketSnapshotRefresherConfig, RealtimeRuntime,
         DEFAULT_REALTIME_QUEUE_CAPACITY,
     },
-    router::build_router_with_runtime_and_storage,
+    router::build_router_with_runtime_storage_and_notification,
     storage::{
         connect_pool, run_migrations, PgPoolOptionsConfig, PostgresStorage, StorageRepository,
         StorageWriter, StorageWriterRuntime,
@@ -52,6 +53,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             market_ids,
         ),
         None => RealtimeRuntime::spawn_default(),
+    });
+    let notification = storage_writer.as_ref().map(|writer| {
+        NotificationRuntime::spawn(
+            Arc::new(HttpNotificationSender::new()),
+            writer.handle().clone(),
+            256,
+            NotificationRuntimeConfig::default(),
+        )
     });
     if let Some(runtime) = realtime.clone() {
         tokio::spawn(async move {
@@ -102,8 +111,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    let app =
-        build_router_with_runtime_and_storage(config, storage_writer, realtime, storage_repository);
+    let app = build_router_with_runtime_storage_and_notification(
+        config,
+        storage_writer,
+        realtime,
+        storage_repository,
+        notification,
+    );
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     tracing::info!(%addr, "starting polymarket backend");

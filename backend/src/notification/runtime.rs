@@ -33,8 +33,58 @@ pub trait NotificationSender: Send + Sync {
 pub struct NotificationRuntime {
     tx: mpsc::Sender<NotificationJob>,
     metrics: Arc<RwLock<NotificationRuntimeSnapshot>>,
+    sender: Arc<dyn NotificationSender>,
+    config: NotificationRuntimeConfig,
+    capacity: usize,
     _task: Option<Arc<JoinHandle<()>>>,
     _rx_guard: Option<Arc<Mutex<mpsc::Receiver<NotificationJob>>>>,
+}
+
+#[derive(Clone)]
+pub struct HttpNotificationSender {
+    client: reqwest::Client,
+}
+
+impl HttpNotificationSender {
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+impl Default for HttpNotificationSender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl NotificationSender for HttpNotificationSender {
+    async fn send(
+        &self,
+        webhook_url: &str,
+        payload: Value,
+    ) -> Result<NotificationSendOutcome, NotificationError> {
+        let response = self
+            .client
+            .post(webhook_url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| NotificationError::SendFailed(error.to_string()))?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(NotificationError::SendFailed(format!(
+                "http status {status}"
+            )));
+        }
+
+        Ok(NotificationSendOutcome {
+            response_summary: Some(trim_summary(format!("http status {status}: {body}"))),
+        })
+    }
 }
 
 impl NotificationRuntime {
@@ -53,13 +103,15 @@ impl NotificationRuntime {
         let dedupe = Arc::new(Mutex::new(HashSet::<String>::new()));
         let worker_metrics = metrics.clone();
         let worker_dedupe = dedupe.clone();
+        let worker_config = config.clone();
+        let worker_sender = sender.clone();
         let task = tokio::spawn(async move {
             while let Some(job) = rx.recv().await {
                 process_job(
                     job,
-                    sender.as_ref(),
+                    worker_sender.as_ref(),
                     &storage_writer,
-                    &config,
+                    &worker_config,
                     &worker_metrics,
                     &worker_dedupe,
                 )
@@ -70,24 +122,31 @@ impl NotificationRuntime {
         Self {
             tx,
             metrics,
+            sender,
+            config,
+            capacity,
             _task: Some(Arc::new(task)),
             _rx_guard: None,
         }
     }
 
     pub fn spawn_paused_for_tests<S>(
-        _sender: Arc<S>,
+        sender: Arc<S>,
         _storage_writer: StorageWriterHandle,
         capacity: usize,
-        _config: NotificationRuntimeConfig,
+        config: NotificationRuntimeConfig,
     ) -> Self
     where
         S: NotificationSender + 'static,
     {
         let (tx, rx) = mpsc::channel::<NotificationJob>(capacity);
+        let sender: Arc<dyn NotificationSender> = sender;
         Self {
             tx,
             metrics: Arc::new(RwLock::new(NotificationRuntimeSnapshot::default())),
+            sender,
+            config,
+            capacity,
             _task: None,
             _rx_guard: Some(Arc::new(Mutex::new(rx))),
         }
@@ -108,10 +167,56 @@ impl NotificationRuntime {
     }
 
     pub fn snapshot(&self) -> NotificationRuntimeSnapshot {
-        self.metrics
+        let mut snapshot = self
+            .metrics
             .read()
             .expect("notification metrics lock poisoned")
-            .clone()
+            .clone();
+        snapshot.queued_capacity = self.capacity;
+        snapshot.queued_available = self.tx.capacity();
+        snapshot.task_status = if self.tx.is_closed() {
+            "stopped".to_string()
+        } else {
+            "running".to_string()
+        };
+        snapshot
+    }
+
+    pub async fn send_card(
+        &self,
+        webhook_url: &str,
+        payload: Value,
+    ) -> Result<NotificationSendOutcome, NotificationError> {
+        let max_attempts = self.config.max_attempts.max(1);
+        let mut attempt = 1_u8;
+        loop {
+            let result = time::timeout(
+                Duration::from_millis(self.config.send_timeout_ms.max(1)),
+                self.sender.send(webhook_url, payload.clone()),
+            )
+            .await
+            .map_err(|_| NotificationError::Timeout)
+            .and_then(|result| result);
+
+            match result {
+                Ok(outcome) => {
+                    self.update_metrics(|metrics| metrics.sent += 1);
+                    return Ok(outcome);
+                }
+                Err(error) => {
+                    if attempt >= max_attempts {
+                        self.update_metrics(|metrics| metrics.failed += 1);
+                        return Err(error);
+                    }
+                    self.update_metrics(|metrics| metrics.retried += 1);
+                    attempt += 1;
+                    time::sleep(Duration::from_millis(
+                        self.config.retry_base_delay_ms.max(1) * u64::from(attempt),
+                    ))
+                    .await;
+                }
+            }
+        }
     }
 
     fn update_metrics(&self, update: impl FnOnce(&mut NotificationRuntimeSnapshot)) {
@@ -314,5 +419,14 @@ fn mask_webhook_url(webhook_url: &str) -> String {
         format!("{scheme}://{host}/.../{suffix}")
     } else {
         format!(".../{suffix}")
+    }
+}
+
+fn trim_summary(summary: String) -> String {
+    const MAX_SUMMARY_CHARS: usize = 240;
+    if summary.chars().count() <= MAX_SUMMARY_CHARS {
+        summary
+    } else {
+        summary.chars().take(MAX_SUMMARY_CHARS).collect()
     }
 }

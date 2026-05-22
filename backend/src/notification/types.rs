@@ -61,6 +61,9 @@ impl Default for NotificationRuntimeConfig {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotificationRuntimeSnapshot {
+    pub queued_capacity: usize,
+    pub queued_available: usize,
+    pub task_status: String,
     pub accepted: u64,
     pub dropped: u64,
     pub processed: u64,
