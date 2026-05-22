@@ -28,6 +28,35 @@ pub struct BacktestReplayOutput {
     pub profit_loss: BigDecimal,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReplayWindowCandidate {
+    pub created_at: OffsetDateTime,
+    pub side: String,
+    pub confidence: BigDecimal,
+    pub limit_price: BigDecimal,
+    pub suggested_size: BigDecimal,
+    pub ttl_ms: i32,
+    pub reason: String,
+    pub features: Value,
+    pub input_snapshot_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReplayWindow {
+    pub market_key: String,
+    pub window_start: OffsetDateTime,
+    pub window_end: OffsetDateTime,
+    pub open_price: BigDecimal,
+    pub final_price: BigDecimal,
+    pub candidates: Vec<ReplayWindowCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BacktestReplayResult {
+    pub metrics: BacktestMetrics,
+    pub replay_outputs: Vec<BacktestReplayOutput>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CalibrationBucket {
     pub lower_bound: BigDecimal,
@@ -55,4 +84,49 @@ pub struct BacktestMetrics {
     pub average_price_paid: BigDecimal,
     pub calibration_buckets: Vec<CalibrationBucket>,
     pub parameters: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacktestEligibilityPolicy {
+    pub min_trades: u64,
+    pub min_wilson_lower_bound: BigDecimal,
+    pub min_coverage: BigDecimal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BacktestEligibility {
+    pub eligible: bool,
+    pub reasons: Vec<String>,
+}
+
+impl BacktestMetrics {
+    pub fn production_eligibility(
+        &self,
+        policy: &BacktestEligibilityPolicy,
+    ) -> BacktestEligibility {
+        let mut reasons = Vec::new();
+        if self.trades < policy.min_trades {
+            reasons.push(format!(
+                "min_trades not met: {} < {}",
+                self.trades, policy.min_trades
+            ));
+        }
+        if self.wilson_lower_bound < policy.min_wilson_lower_bound {
+            reasons.push(format!(
+                "min_wilson_lower_bound not met: {} < {}",
+                self.wilson_lower_bound, policy.min_wilson_lower_bound
+            ));
+        }
+        if self.coverage < policy.min_coverage {
+            reasons.push(format!(
+                "min_coverage not met: {} < {}",
+                self.coverage, policy.min_coverage
+            ));
+        }
+
+        BacktestEligibility {
+            eligible: reasons.is_empty(),
+            reasons,
+        }
+    }
 }

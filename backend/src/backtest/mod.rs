@@ -1,7 +1,11 @@
+pub mod engine;
 pub mod metrics;
 pub mod types;
 
+pub use engine::replay_backtest;
 pub use metrics::compute_backtest_metrics;
 pub use types::{
-    BacktestMetrics, BacktestReplayOutput, CalibrationBucket, FrozenActionableAlert,
+    BacktestEligibility, BacktestEligibilityPolicy, BacktestMetrics, BacktestReplayOutput,
+    BacktestReplayResult, CalibrationBucket, FrozenActionableAlert, ReplayWindow,
+    ReplayWindowCandidate,
 };
