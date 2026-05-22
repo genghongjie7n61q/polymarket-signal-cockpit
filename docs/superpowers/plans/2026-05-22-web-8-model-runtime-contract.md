@@ -19,7 +19,7 @@
 - Create `backend/src/model/registry.rs`: built-in model registry and assignment lookup.
 - Create `backend/src/model/runtime.rs`: bounded realtime model worker shell and metrics.
 - Modify `backend/src/lib.rs`: export `model`.
-- Modify `backend/src/realtime/runtime.rs`: accept optional model fanout after state update.
+- Defer realtime state-owner integration until the context builder and persistence adapter are explicit enough to keep DB work off the critical path.
 - Modify `backend/src/storage/types.rs` and `backend/src/storage/repository.rs` only if runtime persistence needs model version/window IDs in this issue.
 - Test with focused new files under `backend/tests/model_*_tests.rs`.
 
@@ -244,10 +244,9 @@ Run `model_registry_tests`; expected: pass.
 **Files:**
 - Create: `backend/src/model/runtime.rs`
 - Modify: `backend/src/model/mod.rs`
-- Modify: `backend/src/realtime/runtime.rs`
 - Test: `backend/tests/model_runtime_tests.rs`
 
-- [ ] **Step 1: Write failing runtime tests**
+- [x] **Step 1: Write failing runtime tests**
 
 ```rust
 #[tokio::test]
@@ -259,11 +258,11 @@ async fn model_runtime_processes_tick_after_state_owner_and_drops_without_blocki
 }
 ```
 
-- [ ] **Step 2: Implement worker shell**
+- [x] **Step 2: Implement worker shell**
 
-`ModelRuntime` owns a bounded channel of `ModelContext`. The worker runs `StrategyModel::decide` synchronously and records metrics: accepted, dropped, processed, candidates, no_trades, failed. It does not perform network I/O and does not call Feishu/HTTP.
+`ModelRuntime` owns a bounded channel of `ModelContext`. The worker runs `StrategyModel::decide` synchronously and records metrics: accepted, dropped, processed, candidates, no_trades, failed. The snapshot keeps the latest decision for cockpit/debug visibility. It does not perform network I/O and does not call Feishu/HTTP.
 
-- [ ] **Step 3: Run GREEN**
+- [x] **Step 3: Run GREEN**
 
 Run `model_runtime_tests`; expected: pass.
 
