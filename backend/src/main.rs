@@ -1,7 +1,20 @@
-use std::net::SocketAddr;
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
-use polymarket_backend::{config::AppConfig, router::build_router};
+use polymarket_backend::{
+    config::AppConfig,
+    realtime::{
+        run_coinbase_ws_collector_until, run_polymarket_snapshot_refresher_until,
+        CoinbaseCollectorConfig, MarketKey, PolymarketSnapshotRefresherConfig, RealtimeRuntime,
+        DEFAULT_REALTIME_QUEUE_CAPACITY,
+    },
+    router::build_router_with_runtime_and_storage,
+    storage::{
+        connect_pool, run_migrations, PgPoolOptionsConfig, PostgresStorage, StorageRepository,
+        StorageWriter, StorageWriterRuntime,
+    },
+};
 use tracing_subscriber::EnvFilter;
+use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -12,7 +25,85 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let addr = SocketAddr::new(config.host.parse()?, config.port);
-    let app = build_router(config);
+    let (storage_writer, market_ids, storage_repository) =
+        if let Some(database_url) = config.database_url.as_deref() {
+            let pool = connect_pool(database_url, PgPoolOptionsConfig::default()).await?;
+            run_migrations(&pool).await?;
+            let storage = PostgresStorage::new(pool);
+            let market_ids = storage.load_realtime_market_ids().await?;
+            let storage: Arc<dyn StorageRepository> = Arc::new(storage);
+            let (writer, join) = StorageWriter::spawn(
+                storage.clone(),
+                config.storage_writer_queue_capacity,
+                Duration::from_millis(config.storage_writer_flush_interval_ms),
+            );
+            (
+                Some(StorageWriterRuntime::new(writer, join)),
+                market_ids,
+                Some(storage),
+            )
+        } else {
+            (None, BTreeMap::<MarketKey, Uuid>::new(), None)
+        };
+    let realtime = Some(match storage_writer.as_ref() {
+        Some(writer) => RealtimeRuntime::spawn_with_storage(
+            DEFAULT_REALTIME_QUEUE_CAPACITY,
+            writer.handle().clone(),
+            market_ids,
+        ),
+        None => RealtimeRuntime::spawn_default(),
+    });
+    if let Some(runtime) = realtime.clone() {
+        tokio::spawn(async move {
+            loop {
+                tracing::info!("starting coinbase websocket collector");
+                let mut coinbase_config = CoinbaseCollectorConfig::default();
+                coinbase_config.proxy = std::env::var("COINBASE_WS_PROXY")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty());
+                let result =
+                    run_coinbase_ws_collector_until(coinbase_config, runtime.clone(), usize::MAX)
+                        .await;
+                match result {
+                    Ok(published) => {
+                        tracing::warn!(published, "coinbase websocket collector stopped");
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "coinbase websocket collector failed");
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+    }
+    if let Some(runtime) = realtime.clone() {
+        tokio::spawn(async move {
+            loop {
+                tracing::info!("starting polymarket snapshot refresher");
+                let mut polymarket_config = PolymarketSnapshotRefresherConfig::default();
+                polymarket_config.http_proxy = std::env::var("POLYMARKET_HTTP_PROXY")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty());
+                let result = run_polymarket_snapshot_refresher_until(
+                    polymarket_config,
+                    runtime.clone(),
+                    usize::MAX,
+                )
+                .await;
+                match result {
+                    Ok(published) => {
+                        tracing::warn!(published, "polymarket snapshot refresher stopped");
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "polymarket snapshot refresher failed");
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+    }
+    let app =
+        build_router_with_runtime_and_storage(config, storage_writer, realtime, storage_repository);
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     tracing::info!(%addr, "starting polymarket backend");

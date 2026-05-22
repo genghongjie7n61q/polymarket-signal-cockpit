@@ -38,42 +38,36 @@ python3 -m unittest tests/test_eth_15m_platform.py
 
 ## Rust Backend Baseline
 
-Run backend tests:
+Agents must not run project services, Docker, databases, or validation stacks on the local Mac.
+Use local checkout only for code editing, Git operations, and lightweight inspection.
+
+Backend tests and runtime validation run on `dev-2`:
 
 ```bash
-cargo test
+ssh dev-2
+cd /opt/polymarket-signal-cockpit
+set -a
+. ./.env
+set +a
+podman run --rm --network host \
+  -e CARGO_HOME=/cargo \
+  -e CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
+  -e DATABASE_URL="$DATABASE_URL" \
+  -v "$HOME/.cache/polymarket-cargo/cargo":/cargo \
+  -v "$HOME/.cache/polymarket-cargo/target":/workspace/target \
+  -v "$PWD":/workspace \
+  -w /workspace \
+  rust:1.87-bookworm \
+  cargo test -p polymarket-backend --locked
 ```
 
-Run the backend locally:
+The dev-2 deployment reads secrets only from the uncommitted dev-2 `.env` file. Required values include `POSTGRES_PASSWORD`, `ADMIN_API_TOKEN`, and `DATABASE_URL` for one-off test commands. Proxy variables such as `COINBASE_WS_PROXY` and `POLYMARKET_HTTP_PROXY` are operator-provided only; the committed compose file does not default traffic through a proxy.
 
-```bash
-POLY_ENV=local \
-APP_HOST=127.0.0.1 \
-APP_PORT=8080 \
-cargo run -p polymarket-backend
-```
+Configuration write APIs require `Authorization: Bearer <ADMIN_API_TOKEN>`. Read APIs and health endpoints do not expose this token or raw webhook URLs.
 
-Check the health endpoint:
+## WEB-6 Storage Validation
 
-```bash
-curl -fsS http://127.0.0.1:8080/healthz
-```
-
-Local development with containers:
-
-```bash
-cp .env.example .env
-# Edit .env and replace POSTGRES_PASSWORD / DATABASE_URL with a local random password.
-docker compose config
-docker compose up --build -d
-docker compose ps
-docker compose logs --tail=100 backend
-curl -fsS http://127.0.0.1:8080/healthz
-docker compose down
-```
-
-The backend fails fast when `POLY_ENV=production` and `DATABASE_URL` is missing. Real webhook values belong only in local `.env` files and must not be committed.
-`BACKEND_BIND` defaults to `127.0.0.1`; set it to `0.0.0.0` only on a controlled deployment host that should accept external traffic.
+Storage tests and PostgreSQL validation run on `dev-2`; do not start local Mac database containers. See [docs/dev-2-web-6-validation.md](docs/dev-2-web-6-validation.md).
 
 ## Target Architecture
 

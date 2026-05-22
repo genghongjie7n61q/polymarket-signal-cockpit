@@ -1,7 +1,9 @@
 use axum::{extract::State, Json};
 use serde::Serialize;
 
-use crate::{config::AppConfig, router::AppState};
+use time::OffsetDateTime;
+
+use crate::{realtime::RealtimeRuntimeSnapshot, router::AppState, storage::StorageWriterSnapshot};
 
 const SERVICE_NAME: &str = "polymarket-backend";
 
@@ -14,6 +16,8 @@ pub struct HealthResponse {
     environment: &'static str,
     database_configured: bool,
     supported_markets: Vec<String>,
+    storage_writer: Option<StorageWriterSnapshot>,
+    realtime: Option<RealtimeRuntimeSnapshot>,
     runtime: RuntimeInfo,
 }
 
@@ -30,15 +34,24 @@ struct RuntimeInfo {
 }
 
 pub async fn healthz(State(state): State<AppState>) -> Json<HealthResponse> {
-    Json(HealthResponse::from_config(&state.config))
+    Json(HealthResponse::from_state(&state))
 }
 
 impl HealthResponse {
-    fn from_config(config: &AppConfig) -> Self {
+    fn from_state(state: &AppState) -> Self {
+        let config = &state.config;
         let version = config.app_version.clone();
         let environment = config.environment.as_str();
         let database_configured = config.database_configured();
         let supported_markets = config.supported_markets.clone();
+        let storage_writer = state
+            .storage_writer
+            .as_ref()
+            .map(|writer| writer.snapshot());
+        let realtime = state
+            .realtime
+            .as_ref()
+            .map(|runtime| runtime.snapshot(OffsetDateTime::now_utc()));
 
         Self {
             status: "ok",
@@ -48,6 +61,8 @@ impl HealthResponse {
             environment,
             database_configured,
             supported_markets: supported_markets.clone(),
+            storage_writer,
+            realtime,
             runtime: RuntimeInfo {
                 environment,
                 database_configured,
