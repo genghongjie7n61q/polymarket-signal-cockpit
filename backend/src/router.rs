@@ -3,7 +3,8 @@ use std::sync::Arc;
 use axum::{routing::get, Router};
 
 use crate::{
-    config::AppConfig, health::healthz, realtime::RealtimeRuntime, storage::StorageWriterRuntime,
+    api::api_router, config::AppConfig, health::healthz, realtime::RealtimeRuntime,
+    storage::StorageWriterRuntime,
 };
 
 #[derive(Clone)]
@@ -31,6 +32,7 @@ pub fn build_router_with_runtime(
 ) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
+        .nest("/api", api_router())
         .with_state(AppState {
             config: Arc::new(config),
             storage_writer,

@@ -7,7 +7,8 @@ use uuid::Uuid;
 
 use crate::realtime::{
     MarketKey, RealtimeBus, RealtimeBusSnapshot, RealtimeEvent, RealtimeStateMetrics,
-    RealtimeStateOwner, RealtimeStorageBridge, RealtimeStorageBridgeSnapshot, StateOwnerConfig,
+    RealtimeStateOwner, RealtimeStateSnapshot, RealtimeStorageBridge,
+    RealtimeStorageBridgeSnapshot, StateOwnerConfig,
 };
 use crate::storage::StorageWriterHandle;
 
@@ -82,6 +83,14 @@ impl RealtimeRuntime {
                 .as_ref()
                 .map(RealtimeStorageBridge::snapshot),
         }
+    }
+
+    pub fn state_snapshot(&self) -> RealtimeStateSnapshot {
+        self.state_owner.snapshot()
+    }
+
+    pub fn source_status_at(&self, now: OffsetDateTime) -> BTreeMap<String, String> {
+        self.state_owner.source_status_at(now)
     }
 }
 
