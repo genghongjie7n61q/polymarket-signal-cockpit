@@ -47,6 +47,24 @@ async fn markets_ws_sends_later_snapshot_after_realtime_update() {
 }
 
 #[tokio::test]
+async fn markets_ws_does_not_emit_duplicate_snapshot_immediately_after_initial_frame() {
+    let (app, _bus) = build_test_app_with_runtime().await;
+    let url = spawn_test_server(app).await;
+
+    let (mut ws, _) = connect_async(format!("{url}/api/ws/markets"))
+        .await
+        .expect("websocket should connect");
+    let _initial = read_json_message(&mut ws).await;
+
+    let next = tokio::time::timeout(Duration::from_millis(150), ws.next()).await;
+
+    assert!(
+        next.is_err(),
+        "websocket should wait before periodic snapshot"
+    );
+}
+
+#[tokio::test]
 async fn markets_ws_returns_error_payload_for_unsupported_query() {
     let (app, _bus) = build_test_app_with_runtime().await;
     let url = spawn_test_server(app).await;

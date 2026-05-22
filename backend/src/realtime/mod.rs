@@ -24,8 +24,8 @@ pub use runtime::{
     DEFAULT_REALTIME_QUEUE_CAPACITY,
 };
 pub use state::{
-    LiveMarketState, RealtimeStateMetrics, RealtimeStateOwner, RealtimeStateSnapshot,
-    SourceSnapshot, StateOwnerConfig,
+    LiveMarketState, LiveMarketSummary, RealtimeStateMetrics, RealtimeStateOwner,
+    RealtimeStateSnapshot, SourceSnapshot, StateOwnerConfig,
 };
 pub use storage_bridge::{RealtimeStorageBridge, RealtimeStorageBridgeSnapshot};
 pub use types::{MarketKey, MarketTick, PolymarketSnapshot, RealtimeError};

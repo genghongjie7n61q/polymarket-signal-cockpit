@@ -9,11 +9,7 @@ use futures_util::SinkExt;
 use serde::Serialize;
 use time::OffsetDateTime;
 
-use crate::{
-    api::dto::{MarketSummaryDto, MarketTickDto, PolymarketSnapshotDto},
-    realtime::{LiveMarketState, MarketKey},
-    router::AppState,
-};
+use crate::{api::dto::MarketSummaryDto, realtime::MarketKey, router::AppState};
 
 #[derive(Debug, Clone, Serialize)]
 struct MarketsSnapshotMessage {
@@ -64,6 +60,7 @@ async fn handle_markets_socket(mut socket: WebSocket, state: AppState, unsupport
     }
 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+    interval.tick().await;
     loop {
         interval.tick().await;
         if send_json(&mut socket, &build_snapshot(&state))
@@ -81,63 +78,38 @@ async fn send_json<T: Serialize>(socket: &mut WebSocket, value: &T) -> Result<()
 }
 
 fn build_snapshot(state: &AppState) -> MarketsSnapshotMessage {
-    let runtime_state = state
-        .realtime
-        .as_ref()
-        .map(|runtime| runtime.state_snapshot());
-    let source_status = state
-        .realtime
-        .as_ref()
-        .map(|runtime| runtime.source_status_at(OffsetDateTime::now_utc()))
-        .unwrap_or_default();
-
-    let mut markets = state
+    let now = OffsetDateTime::now_utc();
+    let market_keys = state
         .config
         .supported_markets
         .iter()
         .filter_map(|market| market.parse::<MarketKey>().ok())
-        .map(|market_key| {
-            let live = runtime_state
-                .as_ref()
-                .and_then(|snapshot| snapshot.markets.get(&market_key));
-            market_summary(
-                market_key,
-                live,
-                source_status.get(default_source(market_key)),
-            )
-        })
         .collect::<Vec<_>>();
+
+    let mut markets = match state.realtime.as_ref() {
+        Some(runtime) => runtime
+            .market_summaries_at(&market_keys, now)
+            .into_iter()
+            .map(MarketSummaryDto::from_live_summary)
+            .collect::<Vec<_>>(),
+        None => market_keys
+            .into_iter()
+            .map(|market_key| MarketSummaryDto {
+                market_key: market_key.as_str().to_string(),
+                symbol: market_key.symbol().to_string(),
+                interval_seconds: market_key.interval_seconds(),
+                source_status: None,
+                current_window: None,
+                latest_tick: None,
+                latest_snapshot: None,
+            })
+            .collect::<Vec<_>>(),
+    };
     markets.sort_by_key(|market| market.market_key.clone());
 
     MarketsSnapshotMessage {
         message_type: "snapshot",
-        generated_at: OffsetDateTime::now_utc(),
+        generated_at: now,
         markets,
-    }
-}
-
-fn market_summary(
-    market_key: MarketKey,
-    live: Option<&LiveMarketState>,
-    source_status: Option<&String>,
-) -> MarketSummaryDto {
-    MarketSummaryDto {
-        market_key: market_key.as_str().to_string(),
-        symbol: market_key.symbol().to_string(),
-        interval_seconds: market_key.interval_seconds(),
-        source_status: source_status.cloned(),
-        current_window: live.and_then(|market| market.current_window.clone()),
-        latest_tick: live
-            .and_then(|market| market.latest_tick.as_ref())
-            .map(MarketTickDto::from_tick),
-        latest_snapshot: live
-            .and_then(|market| market.latest_snapshot.as_ref())
-            .map(PolymarketSnapshotDto::from_snapshot),
-    }
-}
-
-fn default_source(market_key: MarketKey) -> &'static str {
-    match market_key {
-        MarketKey::Btc5m | MarketKey::Eth15m => "coinbase",
     }
 }

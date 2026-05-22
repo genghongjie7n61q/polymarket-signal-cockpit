@@ -18,6 +18,13 @@ Results:
 - `cargo test -p polymarket-backend --test api_ws_tests --locked`: passed, 3 tests.
 - `cargo test -p polymarket-backend --locked`: passed.
 
+Post-review fix validation:
+
+- Added regression coverage for the WebSocket immediate duplicate snapshot issue.
+- `cargo test -p polymarket-backend --test api_ws_tests --locked`: passed, 4 tests.
+- `cargo test -p polymarket-backend --locked`: passed.
+- WebSocket summary snapshots now use a compact realtime summary path that does not clone in-memory candle history.
+
 ## Runtime Deployment
 
 Synced the WEB-20 worktree to `/opt/polymarket-signal-cockpit`, then restarted the intentional dev-2 stack:

@@ -1,7 +1,8 @@
 use serde::Serialize;
 
 use crate::realtime::{
-    CandleSnapshot, MarketTick, MarketWindowState, PolymarketSnapshot, RealtimeRuntimeSnapshot,
+    CandleSnapshot, LiveMarketSummary, MarketTick, MarketWindowState, PolymarketSnapshot,
+    RealtimeRuntimeSnapshot,
 };
 use crate::storage::{
     CandleRecord, ModelAssignmentRecord, NotificationChannelRecord, SignalWithMarketRecord,
@@ -143,6 +144,23 @@ impl MarketTickDto {
             price: tick.price.to_string(),
             size: tick.size.as_ref().map(ToString::to_string),
             sequence: tick.sequence,
+        }
+    }
+}
+
+impl MarketSummaryDto {
+    pub fn from_live_summary(summary: LiveMarketSummary) -> Self {
+        Self {
+            market_key: summary.market_key.as_str().to_string(),
+            symbol: summary.market_key.symbol().to_string(),
+            interval_seconds: summary.market_key.interval_seconds(),
+            source_status: summary.source_status,
+            current_window: summary.current_window,
+            latest_tick: summary.latest_tick.as_ref().map(MarketTickDto::from_tick),
+            latest_snapshot: summary
+                .latest_snapshot
+                .as_ref()
+                .map(PolymarketSnapshotDto::from_snapshot),
         }
     }
 }
