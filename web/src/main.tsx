@@ -1,12 +1,10 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-
-function BootPlaceholder() {
-  return <div>Polymarket Signal Cockpit</div>;
-}
+import { App } from "./App";
+import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BootPlaceholder />
+    <App />
   </React.StrictMode>,
 );
