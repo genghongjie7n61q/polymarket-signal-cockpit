@@ -608,11 +608,17 @@ impl StorageRepository for PostgresStorage {
 
         let model_version_id = sqlx::query_scalar::<_, Uuid>(
             r#"
-            INSERT INTO model_versions (model_id, version, parameters)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (model_id, version)
-            DO UPDATE SET parameters = EXCLUDED.parameters
-            RETURNING id
+            WITH inserted AS (
+                INSERT INTO model_versions (model_id, version, parameters)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (model_id, version) DO NOTHING
+                RETURNING id
+            )
+            SELECT id FROM inserted
+            UNION ALL
+            SELECT id FROM model_versions
+            WHERE model_id = $1 AND version = $2
+            LIMIT 1
             "#,
         )
         .bind(model_id)

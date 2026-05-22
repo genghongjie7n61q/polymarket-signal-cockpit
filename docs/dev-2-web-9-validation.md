@@ -26,12 +26,12 @@ ssh dev-2 'curl -fsS http://192.168.103.157:8080/healthz'
 
 - `cargo fmt --check`: passed.
 - `cargo test -p polymarket-backend --locked`: passed.
-- Backend tests after WEB-9 review fixes: 97 passed, 0 failed.
+- Backend tests after WEB-9 review fixes: 98 passed, 0 failed.
 - New focused tests:
   - `backtest_metrics_tests`: 3 passed.
   - `backtest_engine_tests`: 5 passed.
   - `api_routes_tests`: 12 passed, including `backtests_api_returns_latest_runs_for_market_and_model`.
-  - `storage_repository_tests`: 16 passed, including `repository_inserts_and_lists_backtest_runs` and `repository_preserves_backtest_run_parameter_snapshots`.
+  - `storage_repository_tests`: 17 passed, including `repository_inserts_and_lists_backtest_runs`, `repository_preserves_backtest_run_parameter_snapshots`, and `repository_backtest_run_does_not_mutate_active_assignment_parameters`.
 - `/healthz` via `192.168.103.157:8080`: passed with `status: ok`.
 - Runtime health summary:
   - `storage_writer.task_status`: `running`.

@@ -181,6 +181,10 @@ fn eligibility_rejects_negative_ev_and_excessive_risk_even_when_stats_pass() {
         .reasons
         .iter()
         .any(|reason| reason.contains("max_average_price_paid")));
+    assert!(eligibility
+        .reasons
+        .iter()
+        .any(|reason| reason.contains("max_consecutive_losses")));
 }
 
 fn sample_windows() -> Vec<ReplayWindow> {
