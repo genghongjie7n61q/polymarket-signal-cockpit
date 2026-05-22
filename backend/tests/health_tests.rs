@@ -5,10 +5,11 @@ use polymarket_backend::{
     realtime::{MarketTick, RealtimeBus, RealtimeEvent, RealtimeRuntime, RealtimeStateOwner},
     router::{build_router, build_router_with_runtime, build_router_with_storage},
     storage::{
-        CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
-        NewTick, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
-        SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository, StorageWriter,
-        StorageWriterRuntime, TickRecord,
+        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
+        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
+        SignalRecord, SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository,
+        StorageWriter, StorageWriterRuntime, TickRecord,
     },
 };
 use serde_json::{json, Value};
@@ -232,5 +233,30 @@ impl StorageRepository for HealthRepository {
         _limit: i64,
     ) -> Result<Vec<SignalWithMarketRecord>, StorageError> {
         unreachable!("health test does not query signals")
+    }
+
+    async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError> {
+        unreachable!("health test does not query model assignments")
+    }
+
+    async fn set_active_model_assignment(
+        &self,
+        _assignment: &NewModelAssignment,
+    ) -> Result<ModelAssignmentRecord, StorageError> {
+        unreachable!("health test does not set model assignments")
+    }
+
+    async fn list_notification_channels(
+        &self,
+        _market_key: &str,
+    ) -> Result<Vec<NotificationChannelRecord>, StorageError> {
+        unreachable!("health test does not query notification channels")
+    }
+
+    async fn upsert_notification_channel(
+        &self,
+        _channel: &NewNotificationChannel,
+    ) -> Result<NotificationChannelRecord, StorageError> {
+        unreachable!("health test does not upsert notification channels")
     }
 }

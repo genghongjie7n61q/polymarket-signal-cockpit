@@ -10,10 +10,13 @@ use time::OffsetDateTime;
 use crate::{
     api::dto::{
         CandleDto, CandlesResponseDto, MarketStateDto, MarketSummaryDto, MarketTickDto,
-        MarketsResponseDto, PolymarketSnapshotDto, RuntimeHealthDto, SignalDto, SignalsResponseDto,
+        MarketsResponseDto, ModelAssignmentDto, ModelAssignmentsResponseDto,
+        NotificationChannelDto, NotificationChannelsResponseDto, PolymarketSnapshotDto,
+        RuntimeHealthDto, SignalDto, SignalsResponseDto,
     },
     realtime::{LiveMarketState, MarketKey},
     router::AppState,
+    storage::{NewModelAssignment, NewNotificationChannel},
 };
 
 pub fn api_router() -> Router<AppState> {
@@ -22,6 +25,15 @@ pub fn api_router() -> Router<AppState> {
         .route("/markets/{market_key}/state", get(market_state))
         .route("/markets/{market_key}/candles", get(market_candles))
         .route("/signals", get(latest_signals))
+        .route("/config/model-assignments", get(list_model_assignments))
+        .route(
+            "/config/model-assignments/{market_key}",
+            axum::routing::put(set_model_assignment),
+        )
+        .route(
+            "/config/notification-channels",
+            get(list_notification_channels).post(upsert_notification_channel),
+        )
         .route("/runtime/health", get(runtime_health))
 }
 
@@ -34,6 +46,28 @@ struct LimitQuery {
 struct SignalsQuery {
     market_key: String,
     limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SetModelAssignmentRequest {
+    model_key: String,
+    display_name: Option<String>,
+    version: String,
+    parameters: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct NotificationChannelsQuery {
+    market_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct UpsertNotificationChannelRequest {
+    market_key: String,
+    channel_type: String,
+    name: String,
+    webhook_url: String,
+    enabled: bool,
 }
 
 async fn list_markets(State(state): State<AppState>) -> Json<MarketsResponseDto> {
@@ -149,6 +183,108 @@ async fn latest_signals(
     }))
 }
 
+async fn list_model_assignments(
+    State(state): State<AppState>,
+) -> Result<Json<ModelAssignmentsResponseDto>, StatusCode> {
+    let assignments = match state.storage.as_ref() {
+        Some(storage) => storage
+            .list_model_assignments()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        None => Vec::new(),
+    };
+
+    Ok(Json(ModelAssignmentsResponseDto {
+        assignments: assignments
+            .into_iter()
+            .map(ModelAssignmentDto::from_record)
+            .collect(),
+    }))
+}
+
+async fn set_model_assignment(
+    State(state): State<AppState>,
+    Path(market_key): Path<String>,
+    Json(request): Json<SetModelAssignmentRequest>,
+) -> Result<Json<ModelAssignmentDto>, StatusCode> {
+    let market_key = supported_market(&state, &market_key)?;
+    let storage = state
+        .storage
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let model_key = non_empty(request.model_key)?;
+    let version = non_empty(request.version)?;
+    let display_name = request
+        .display_name
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| model_key.clone());
+
+    let assignment = storage
+        .set_active_model_assignment(&NewModelAssignment {
+            market_key: market_key.as_str().to_string(),
+            model_key,
+            display_name,
+            version,
+            parameters: request.parameters,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(ModelAssignmentDto::from_record(assignment)))
+}
+
+async fn list_notification_channels(
+    State(state): State<AppState>,
+    Query(query): Query<NotificationChannelsQuery>,
+) -> Result<Json<NotificationChannelsResponseDto>, StatusCode> {
+    let market_key = supported_market(&state, &query.market_key)?;
+    let channels = match state.storage.as_ref() {
+        Some(storage) => storage
+            .list_notification_channels(market_key.as_str())
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        None => Vec::new(),
+    };
+
+    Ok(Json(NotificationChannelsResponseDto {
+        market_key: market_key.as_str().to_string(),
+        channels: channels
+            .into_iter()
+            .map(NotificationChannelDto::from_record)
+            .collect(),
+    }))
+}
+
+async fn upsert_notification_channel(
+    State(state): State<AppState>,
+    Json(request): Json<UpsertNotificationChannelRequest>,
+) -> Result<Json<NotificationChannelDto>, StatusCode> {
+    let market_key = supported_market(&state, &request.market_key)?;
+    let storage = state
+        .storage
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let channel_type = non_empty(request.channel_type)?;
+    if channel_type != "feishu" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let name = non_empty(request.name)?;
+    let webhook_url = non_empty(request.webhook_url)?;
+
+    let channel = storage
+        .upsert_notification_channel(&NewNotificationChannel {
+            market_key: market_key.as_str().to_string(),
+            channel_type,
+            name,
+            webhook_url,
+            enabled: request.enabled,
+        })
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(NotificationChannelDto::from_record(channel)))
+}
+
 fn market_summary(
     market_key: MarketKey,
     live: Option<&LiveMarketState>,
@@ -198,6 +334,15 @@ fn supported_market(state: &AppState, market_key: &str) -> Result<MarketKey, Sta
         Ok(market_key)
     } else {
         Err(StatusCode::NOT_FOUND)
+    }
+}
+
+fn non_empty(value: String) -> Result<String, StatusCode> {
+    let value = value.trim().to_string();
+    if value.is_empty() {
+        Err(StatusCode::BAD_REQUEST)
+    } else {
+        Ok(value)
     }
 }
 

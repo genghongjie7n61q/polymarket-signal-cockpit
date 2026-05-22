@@ -2,8 +2,9 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     realtime::MarketKey,
     storage::{
-        connect_pool, run_migrations, NewNotificationDelivery, NewRawMarketEvent, NewSignal,
-        NewTick, PgPoolOptionsConfig, PostgresStorage, StorageRepository,
+        connect_pool, run_migrations, NewModelAssignment, NewNotificationChannel,
+        NewNotificationDelivery, NewRawMarketEvent, NewSignal, NewTick, PgPoolOptionsConfig,
+        PostgresStorage, StorageRepository,
     },
 };
 use serde_json::json;
@@ -447,6 +448,101 @@ async fn repository_queries_latest_signals_by_market() {
     ctx.cleanup().await;
 }
 
+#[tokio::test]
+async fn repository_sets_one_active_model_assignment_per_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let first = storage
+        .set_active_model_assignment(&NewModelAssignment {
+            market_key: ctx.market_key.clone(),
+            model_key: format!("momentum-{}", ctx.suffix),
+            display_name: "Momentum Test".to_string(),
+            version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 4}),
+        })
+        .await
+        .expect("first assignment");
+    let second = storage
+        .set_active_model_assignment(&NewModelAssignment {
+            market_key: ctx.market_key.clone(),
+            model_key: format!("mean-reversion-{}", ctx.suffix),
+            display_name: "Mean Reversion Test".to_string(),
+            version: "0.2.0".to_string(),
+            parameters: json!({"threshold_bps": 7}),
+        })
+        .await
+        .expect("second assignment");
+
+    assert_eq!(first.status, "active");
+    assert_eq!(second.status, "active");
+    assert_eq!(second.model_key, format!("mean-reversion-{}", ctx.suffix));
+
+    let assignments = storage
+        .list_model_assignments()
+        .await
+        .expect("assignment list");
+    let active = assignments
+        .into_iter()
+        .filter(|assignment| assignment.market_key == ctx.market_key)
+        .collect::<Vec<_>>();
+
+    assert_eq!(active.len(), 1);
+    assert_eq!(
+        active[0].model_key,
+        format!("mean-reversion-{}", ctx.suffix)
+    );
+    assert_eq!(active[0].parameters, json!({"threshold_bps": 7}));
+
+    ctx.cleanup().await;
+}
+
+#[tokio::test]
+async fn repository_lists_and_upserts_notification_channels_by_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let first = storage
+        .upsert_notification_channel(&NewNotificationChannel {
+            market_key: ctx.market_key.clone(),
+            channel_type: "feishu".to_string(),
+            name: "primary".to_string(),
+            webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/original".to_string(),
+            enabled: true,
+        })
+        .await
+        .expect("first channel");
+    let updated = storage
+        .upsert_notification_channel(&NewNotificationChannel {
+            market_key: ctx.market_key.clone(),
+            channel_type: "feishu".to_string(),
+            name: "primary".to_string(),
+            webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/updated".to_string(),
+            enabled: false,
+        })
+        .await
+        .expect("updated channel");
+
+    assert_eq!(first.id, updated.id);
+    assert!(!updated.enabled);
+
+    let channels = storage
+        .list_notification_channels(&ctx.market_key)
+        .await
+        .expect("channel list");
+
+    let matching = channels
+        .into_iter()
+        .filter(|channel| channel.name == "primary")
+        .collect::<Vec<_>>();
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].market_key, ctx.market_key);
+    assert_eq!(matching[0].webhook_url, updated.webhook_url);
+    assert!(!matching[0].enabled);
+
+    ctx.cleanup().await;
+}
+
 struct TestContext {
     pool: PgPool,
     suffix: String,
@@ -648,6 +744,25 @@ impl TestContext {
             .execute(&self.pool)
             .await
             .expect("notification channel cleanup");
+
+        sqlx::query(
+            r#"
+            DELETE FROM model_versions
+            WHERE model_id IN (
+                SELECT id FROM models WHERE model_key LIKE $1
+            )
+            "#,
+        )
+        .bind(format!("%{}%", self.suffix))
+        .execute(&self.pool)
+        .await
+        .expect("suffixed model version cleanup");
+
+        sqlx::query("DELETE FROM models WHERE model_key LIKE $1")
+            .bind(format!("%{}%", self.suffix))
+            .execute(&self.pool)
+            .await
+            .expect("suffixed model cleanup");
 
         sqlx::query("DELETE FROM ticks WHERE market_id = $1")
             .bind(self.market_id)

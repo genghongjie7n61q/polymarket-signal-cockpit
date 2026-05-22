@@ -21,7 +21,7 @@
 - Modify: `backend/src/realtime/runtime.rs`
 - Test: `backend/tests/api_routes_tests.rs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add tests for:
 - `GET /api/markets` returns supported markets with current live state when realtime is configured.
@@ -117,7 +117,7 @@ Test:
 - `GET /api/config/notification-channels?market_key=btc5m` lists channels.
 - `POST /api/config/notification-channels` creates or updates a Feishu webhook config.
 
-- [ ] **Step 2: Implement repository and handlers**
+- [x] **Step 2: Implement repository and handlers**
 
 Add repository methods:
 - `list_model_assignments()`
@@ -127,9 +127,15 @@ Add repository methods:
 
 Do not log webhook URLs. Do not expose secrets in health output.
 
-- [ ] **Step 3: Verify green**
+- [x] **Step 3: Verify green**
 
 Run targeted tests and full backend tests on dev-2.
+
+Evidence on dev-2:
+- RED: `cargo test -p polymarket-backend --test api_routes_tests model_assignments_api_lists_active_assignments --locked` failed because config storage types and trait methods were missing.
+- GREEN: `cargo test -p polymarket-backend --test api_routes_tests --locked` passed with 10 API tests.
+- GREEN: model assignment and notification channel repository tests passed.
+- Full: `cargo test -p polymarket-backend --locked` passed in the Rust 1.87 container.
 
 ### Task 4: WebSocket Snapshot Stream
 

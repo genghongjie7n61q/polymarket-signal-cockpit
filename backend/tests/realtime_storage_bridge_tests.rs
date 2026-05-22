@@ -2,9 +2,11 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     realtime::{MarketKey, MarketTick, RealtimeEvent, RealtimeStorageBridge},
     storage::{
-        CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
-        NewTick, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
-        SignalWithMarketRecord, StorageError, StorageRepository, StorageWriter, TickRecord,
+        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
+        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
+        SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository, StorageWriter,
+        TickRecord,
     },
 };
 use std::{
@@ -143,6 +145,31 @@ impl StorageRepository for CapturedRepository {
         _limit: i64,
     ) -> Result<Vec<SignalWithMarketRecord>, StorageError> {
         unreachable!("bridge test does not query signals")
+    }
+
+    async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError> {
+        unreachable!("bridge test does not query model assignments")
+    }
+
+    async fn set_active_model_assignment(
+        &self,
+        _assignment: &NewModelAssignment,
+    ) -> Result<ModelAssignmentRecord, StorageError> {
+        unreachable!("bridge test does not set model assignments")
+    }
+
+    async fn list_notification_channels(
+        &self,
+        _market_key: &str,
+    ) -> Result<Vec<NotificationChannelRecord>, StorageError> {
+        unreachable!("bridge test does not query notification channels")
+    }
+
+    async fn upsert_notification_channel(
+        &self,
+        _channel: &NewNotificationChannel,
+    ) -> Result<NotificationChannelRecord, StorageError> {
+        unreachable!("bridge test does not upsert notification channels")
     }
 }
 

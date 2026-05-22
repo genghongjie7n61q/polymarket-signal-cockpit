@@ -8,9 +8,11 @@ use std::{
 
 use async_trait::async_trait;
 use polymarket_backend::storage::{
-    CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-    RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord,
-    StorageCommand, StorageError, StorageRepository, StorageWriter, TickRecord,
+    CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
+    NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+    NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
+    SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository, StorageWriter,
+    TickRecord,
 };
 use serde_json::json;
 use time::OffsetDateTime;
@@ -286,5 +288,32 @@ impl StorageRepository for FakeRepository {
     ) -> Result<Vec<SignalWithMarketRecord>, StorageError> {
         self.maybe_fail().await?;
         Ok(Vec::new())
+    }
+
+    async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError> {
+        self.maybe_fail().await?;
+        Ok(Vec::new())
+    }
+
+    async fn set_active_model_assignment(
+        &self,
+        _assignment: &NewModelAssignment,
+    ) -> Result<ModelAssignmentRecord, StorageError> {
+        unreachable!("writer test does not set model assignments")
+    }
+
+    async fn list_notification_channels(
+        &self,
+        _market_key: &str,
+    ) -> Result<Vec<NotificationChannelRecord>, StorageError> {
+        self.maybe_fail().await?;
+        Ok(Vec::new())
+    }
+
+    async fn upsert_notification_channel(
+        &self,
+        _channel: &NewNotificationChannel,
+    ) -> Result<NotificationChannelRecord, StorageError> {
+        unreachable!("writer test does not upsert notification channels")
     }
 }

@@ -3,7 +3,10 @@ use serde::Serialize;
 use crate::realtime::{
     CandleSnapshot, MarketTick, MarketWindowState, PolymarketSnapshot, RealtimeRuntimeSnapshot,
 };
-use crate::storage::{CandleRecord, SignalWithMarketRecord, StorageWriterSnapshot};
+use crate::storage::{
+    CandleRecord, ModelAssignmentRecord, NotificationChannelRecord, SignalWithMarketRecord,
+    StorageWriterSnapshot,
+};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MarketsResponseDto {
@@ -96,6 +99,40 @@ pub struct RuntimeHealthDto {
     pub realtime: Option<RealtimeRuntimeSnapshot>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ModelAssignmentsResponseDto {
+    pub assignments: Vec<ModelAssignmentDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ModelAssignmentDto {
+    pub market_key: String,
+    pub model_key: String,
+    pub display_name: String,
+    pub version: String,
+    pub parameters: serde_json::Value,
+    pub status: String,
+    pub created_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NotificationChannelsResponseDto {
+    pub market_key: String,
+    pub channels: Vec<NotificationChannelDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NotificationChannelDto {
+    pub id: uuid::Uuid,
+    pub market_key: String,
+    pub channel_type: String,
+    pub name: String,
+    pub webhook_url: Option<String>,
+    pub webhook_url_masked: String,
+    pub enabled: bool,
+    pub created_at: time::OffsetDateTime,
+}
+
 impl MarketTickDto {
     pub fn from_tick(tick: &MarketTick) -> Self {
         Self {
@@ -153,5 +190,51 @@ impl SignalDto {
             input_snapshot_hash: record.input_snapshot_hash,
             created_at: record.created_at,
         }
+    }
+}
+
+impl ModelAssignmentDto {
+    pub fn from_record(record: ModelAssignmentRecord) -> Self {
+        Self {
+            market_key: record.market_key,
+            model_key: record.model_key,
+            display_name: record.display_name,
+            version: record.version,
+            parameters: record.parameters,
+            status: record.status,
+            created_at: record.created_at,
+        }
+    }
+}
+
+impl NotificationChannelDto {
+    pub fn from_record(record: NotificationChannelRecord) -> Self {
+        Self {
+            id: record.id,
+            market_key: record.market_key,
+            channel_type: record.channel_type,
+            name: record.name,
+            webhook_url: None,
+            webhook_url_masked: mask_webhook_url(&record.webhook_url),
+            enabled: record.enabled,
+            created_at: record.created_at,
+        }
+    }
+}
+
+fn mask_webhook_url(webhook_url: &str) -> String {
+    let suffix = webhook_url
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    if let Some((scheme, rest)) = webhook_url.split_once("://") {
+        let host = rest.split('/').next().unwrap_or("webhook");
+        format!("{scheme}://{host}/.../{suffix}")
+    } else {
+        format!(".../{suffix}")
     }
 }

@@ -6,9 +6,10 @@ use uuid::Uuid;
 use crate::{
     realtime::MarketKey,
     storage::{
-        CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
-        NewTick, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
-        SignalWithMarketRecord, StorageError, TickRecord,
+        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
+        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
+        SignalRecord, SignalWithMarketRecord, StorageError, TickRecord,
     },
 };
 
@@ -43,6 +44,19 @@ pub trait StorageRepository: Send + Sync {
         market_key: &str,
         limit: i64,
     ) -> Result<Vec<SignalWithMarketRecord>, StorageError>;
+    async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError>;
+    async fn set_active_model_assignment(
+        &self,
+        assignment: &NewModelAssignment,
+    ) -> Result<ModelAssignmentRecord, StorageError>;
+    async fn list_notification_channels(
+        &self,
+        market_key: &str,
+    ) -> Result<Vec<NotificationChannelRecord>, StorageError>;
+    async fn upsert_notification_channel(
+        &self,
+        channel: &NewNotificationChannel,
+    ) -> Result<NotificationChannelRecord, StorageError>;
 }
 
 #[derive(Clone)]
@@ -371,5 +385,186 @@ impl StorageRepository for PostgresStorage {
         .await?;
 
         Ok(signals)
+    }
+
+    async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError> {
+        let assignments = sqlx::query_as::<_, ModelAssignmentRecord>(
+            r#"
+            SELECT
+                m.market_key,
+                mo.model_key,
+                mo.display_name,
+                mv.version,
+                mv.parameters,
+                ma.status,
+                ma.created_at
+            FROM model_assignments ma
+            JOIN markets m ON m.id = ma.market_id
+            JOIN model_versions mv ON mv.id = ma.model_version_id
+            JOIN models mo ON mo.id = mv.model_id
+            WHERE ma.status = 'active'
+            ORDER BY m.market_key ASC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(assignments)
+    }
+
+    async fn set_active_model_assignment(
+        &self,
+        assignment: &NewModelAssignment,
+    ) -> Result<ModelAssignmentRecord, StorageError> {
+        let mut tx = self.pool.begin().await?;
+        let market_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT id FROM markets WHERE market_key = $1
+            "#,
+        )
+        .bind(&assignment.market_key)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let model_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO models (model_key, display_name)
+            VALUES ($1, $2)
+            ON CONFLICT (model_key)
+            DO UPDATE SET display_name = EXCLUDED.display_name
+            RETURNING id
+            "#,
+        )
+        .bind(&assignment.model_key)
+        .bind(&assignment.display_name)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let model_version_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            INSERT INTO model_versions (model_id, version, parameters)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (model_id, version)
+            DO UPDATE SET parameters = EXCLUDED.parameters
+            RETURNING id
+            "#,
+        )
+        .bind(model_id)
+        .bind(&assignment.version)
+        .bind(&assignment.parameters)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE model_assignments
+            SET status = 'inactive'
+            WHERE market_id = $1
+              AND status = 'active'
+            "#,
+        )
+        .bind(market_id)
+        .execute(&mut *tx)
+        .await?;
+
+        let record = sqlx::query_as::<_, ModelAssignmentRecord>(
+            r#"
+            WITH inserted AS (
+                INSERT INTO model_assignments (market_id, model_version_id, status)
+                VALUES ($1, $2, 'active')
+                RETURNING market_id, model_version_id, status, created_at
+            )
+            SELECT
+                m.market_key,
+                mo.model_key,
+                mo.display_name,
+                mv.version,
+                mv.parameters,
+                inserted.status,
+                inserted.created_at
+            FROM inserted
+            JOIN markets m ON m.id = inserted.market_id
+            JOIN model_versions mv ON mv.id = inserted.model_version_id
+            JOIN models mo ON mo.id = mv.model_id
+            "#,
+        )
+        .bind(market_id)
+        .bind(model_version_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(record)
+    }
+
+    async fn list_notification_channels(
+        &self,
+        market_key: &str,
+    ) -> Result<Vec<NotificationChannelRecord>, StorageError> {
+        let channels = sqlx::query_as::<_, NotificationChannelRecord>(
+            r#"
+            SELECT
+                nc.id,
+                m.market_key,
+                nc.channel_type,
+                nc.name,
+                nc.webhook_url,
+                nc.enabled,
+                nc.created_at
+            FROM notification_channels nc
+            JOIN markets m ON m.id = nc.market_id
+            WHERE m.market_key = $1
+            ORDER BY nc.name ASC
+            "#,
+        )
+        .bind(market_key)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(channels)
+    }
+
+    async fn upsert_notification_channel(
+        &self,
+        channel: &NewNotificationChannel,
+    ) -> Result<NotificationChannelRecord, StorageError> {
+        let record = sqlx::query_as::<_, NotificationChannelRecord>(
+            r#"
+            WITH target_market AS (
+                SELECT id, market_key FROM markets WHERE market_key = $1
+            ),
+            upserted AS (
+                INSERT INTO notification_channels (
+                    market_id, channel_type, name, webhook_url, enabled
+                )
+                SELECT id, $2, $3, $4, $5
+                FROM target_market
+                ON CONFLICT (market_id, channel_type, name)
+                DO UPDATE SET
+                    webhook_url = EXCLUDED.webhook_url,
+                    enabled = EXCLUDED.enabled
+                RETURNING id, market_id, channel_type, name, webhook_url, enabled, created_at
+            )
+            SELECT
+                upserted.id,
+                target_market.market_key,
+                upserted.channel_type,
+                upserted.name,
+                upserted.webhook_url,
+                upserted.enabled,
+                upserted.created_at
+            FROM upserted
+            JOIN target_market ON target_market.id = upserted.market_id
+            "#,
+        )
+        .bind(&channel.market_key)
+        .bind(&channel.channel_type)
+        .bind(&channel.name)
+        .bind(&channel.webhook_url)
+        .bind(channel.enabled)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(record)
     }
 }

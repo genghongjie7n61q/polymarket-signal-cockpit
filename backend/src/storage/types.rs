@@ -125,6 +125,46 @@ pub struct SignalWithMarketRecord {
     pub created_at: OffsetDateTime,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct ModelAssignmentRecord {
+    pub market_key: String,
+    pub model_key: String,
+    pub display_name: String,
+    pub version: String,
+    pub parameters: Value,
+    pub status: String,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewModelAssignment {
+    pub market_key: String,
+    pub model_key: String,
+    pub display_name: String,
+    pub version: String,
+    pub parameters: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct NotificationChannelRecord {
+    pub id: Uuid,
+    pub market_key: String,
+    pub channel_type: String,
+    pub name: String,
+    pub webhook_url: String,
+    pub enabled: bool,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewNotificationChannel {
+    pub market_key: String,
+    pub channel_type: String,
+    pub name: String,
+    pub webhook_url: String,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewRuntimeEvent {
     pub component: String,

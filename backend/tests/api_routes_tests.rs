@@ -1,6 +1,6 @@
 use axum::{
     body::{to_bytes, Body},
-    http::{Request, StatusCode},
+    http::{header::CONTENT_TYPE, Request, StatusCode},
 };
 use polymarket_backend::{
     config::AppConfig,
@@ -9,13 +9,17 @@ use polymarket_backend::{
     },
     router::{build_router_with_runtime, build_router_with_runtime_and_storage},
     storage::{
-        CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
-        NewTick, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
-        SignalWithMarketRecord, StorageError, StorageRepository, TickRecord,
+        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
+        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
+        SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository, TickRecord,
     },
 };
-use serde_json::Value;
-use std::{sync::Arc, time::Duration};
+use serde_json::{json, Value};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use time::OffsetDateTime;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -144,7 +148,7 @@ async fn candles_api_returns_recent_persisted_candles_for_market() {
                 volume: "3.8".parse().unwrap(),
             },
         ],
-        signals: Vec::new(),
+        ..Default::default()
     })
     .await;
 
@@ -174,7 +178,6 @@ async fn candles_api_returns_recent_persisted_candles_for_market() {
 #[tokio::test]
 async fn signals_api_returns_latest_persisted_signals_for_market() {
     let app = build_test_app_with_repository(ApiRepository {
-        candles: Vec::new(),
         signals: vec![SignalWithMarketRecord {
             id: Uuid::new_v4(),
             market_key: "btc5m".to_string(),
@@ -191,6 +194,7 @@ async fn signals_api_returns_latest_persisted_signals_for_market() {
             input_snapshot_hash: "snapshot-1".to_string(),
             created_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(90),
         }],
+        ..Default::default()
     })
     .await;
 
@@ -217,6 +221,174 @@ async fn signals_api_returns_latest_persisted_signals_for_market() {
     assert_eq!(json["signals"][0]["confidence"], "0.82");
     assert_eq!(json["signals"][0]["limit_price"], "0.51");
     assert_eq!(json["signals"][0]["reason"], "positive edge");
+}
+
+#[tokio::test]
+async fn model_assignments_api_lists_active_assignments() {
+    let repository = ApiRepository::default();
+    repository
+        .assignments
+        .lock()
+        .expect("assignments lock")
+        .push(model_assignment("btc5m", "baseline", "0.1.0"));
+    let app = build_test_app_with_repository(repository).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/config/model-assignments")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(
+        json["assignments"].as_array().expect("assignments").len(),
+        1
+    );
+    assert_eq!(json["assignments"][0]["market_key"], "btc5m");
+    assert_eq!(json["assignments"][0]["model_key"], "baseline");
+    assert_eq!(
+        json["assignments"][0]["parameters"],
+        json!({"threshold_bps": 4})
+    );
+}
+
+#[tokio::test]
+async fn model_assignment_api_sets_active_assignment() {
+    let repository = ApiRepository::default();
+    let app = build_test_app_with_repository(repository.clone()).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/config/model-assignments/btc5m")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "model_key": "mean-reversion",
+                        "display_name": "Mean Reversion",
+                        "version": "0.2.0",
+                        "parameters": {"threshold_bps": 7}
+                    })
+                    .to_string(),
+                ))
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["market_key"], "btc5m");
+    assert_eq!(json["model_key"], "mean-reversion");
+    assert_eq!(json["version"], "0.2.0");
+    assert_eq!(json["parameters"], json!({"threshold_bps": 7}));
+    assert_eq!(
+        repository
+            .assignments
+            .lock()
+            .expect("assignments lock")
+            .len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn notification_channels_api_lists_channels_with_masked_webhooks() {
+    let repository = ApiRepository::default();
+    repository
+        .channels
+        .lock()
+        .expect("channels lock")
+        .push(notification_channel("btc5m", "primary", true));
+    let app = build_test_app_with_repository(repository).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/config/notification-channels?market_key=btc5m")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["market_key"], "btc5m");
+    assert_eq!(json["channels"].as_array().expect("channels").len(), 1);
+    assert_eq!(json["channels"][0]["name"], "primary");
+    assert_eq!(json["channels"][0]["webhook_url"], Value::Null);
+    assert_eq!(
+        json["channels"][0]["webhook_url_masked"],
+        "https://open.feishu.cn/.../abcd"
+    );
+}
+
+#[tokio::test]
+async fn notification_channels_api_upserts_feishu_channel() {
+    let repository = ApiRepository::default();
+    let app = build_test_app_with_repository(repository.clone()).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/config/notification-channels")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    json!({
+                        "market_key": "btc5m",
+                        "channel_type": "feishu",
+                        "name": "primary",
+                        "webhook_url": "https://open.feishu.cn/open-apis/bot/v2/hook/newabcd",
+                        "enabled": true
+                    })
+                    .to_string(),
+                ))
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["market_key"], "btc5m");
+    assert_eq!(json["name"], "primary");
+    assert_eq!(json["webhook_url"], Value::Null);
+    assert_eq!(
+        json["webhook_url_masked"],
+        "https://open.feishu.cn/.../abcd"
+    );
+    assert_eq!(
+        repository.channels.lock().expect("channels lock")[0].webhook_url,
+        "https://open.feishu.cn/open-apis/bot/v2/hook/newabcd"
+    );
 }
 
 async fn build_test_app_with_tick() -> axum::Router {
@@ -257,10 +429,12 @@ async fn build_test_app_with_repository(repository: ApiRepository) -> axum::Rout
     build_router_with_runtime_and_storage(config, None, None, Some(Arc::new(repository)))
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct ApiRepository {
     candles: Vec<CandleRecord>,
     signals: Vec<SignalWithMarketRecord>,
+    assignments: Arc<Mutex<Vec<ModelAssignmentRecord>>>,
+    channels: Arc<Mutex<Vec<NotificationChannelRecord>>>,
 }
 
 #[async_trait::async_trait]
@@ -328,5 +502,89 @@ impl StorageRepository for ApiRepository {
             .take(limit as usize)
             .cloned()
             .collect())
+    }
+
+    async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError> {
+        Ok(self.assignments.lock().expect("assignments lock").clone())
+    }
+
+    async fn set_active_model_assignment(
+        &self,
+        assignment: &NewModelAssignment,
+    ) -> Result<ModelAssignmentRecord, StorageError> {
+        let record = ModelAssignmentRecord {
+            market_key: assignment.market_key.clone(),
+            model_key: assignment.model_key.clone(),
+            display_name: assignment.display_name.clone(),
+            version: assignment.version.clone(),
+            parameters: assignment.parameters.clone(),
+            status: "active".to_string(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        };
+        let mut assignments = self.assignments.lock().expect("assignments lock");
+        assignments.retain(|existing| existing.market_key != assignment.market_key);
+        assignments.push(record.clone());
+        Ok(record)
+    }
+
+    async fn list_notification_channels(
+        &self,
+        market_key: &str,
+    ) -> Result<Vec<NotificationChannelRecord>, StorageError> {
+        Ok(self
+            .channels
+            .lock()
+            .expect("channels lock")
+            .iter()
+            .filter(|channel| channel.market_key == market_key)
+            .cloned()
+            .collect())
+    }
+
+    async fn upsert_notification_channel(
+        &self,
+        channel: &NewNotificationChannel,
+    ) -> Result<NotificationChannelRecord, StorageError> {
+        let record = NotificationChannelRecord {
+            id: Uuid::new_v4(),
+            market_key: channel.market_key.clone(),
+            channel_type: channel.channel_type.clone(),
+            name: channel.name.clone(),
+            webhook_url: channel.webhook_url.clone(),
+            enabled: channel.enabled,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+        };
+        let mut channels = self.channels.lock().expect("channels lock");
+        channels.retain(|existing| {
+            !(existing.market_key == channel.market_key
+                && existing.channel_type == channel.channel_type
+                && existing.name == channel.name)
+        });
+        channels.push(record.clone());
+        Ok(record)
+    }
+}
+
+fn model_assignment(market_key: &str, model_key: &str, version: &str) -> ModelAssignmentRecord {
+    ModelAssignmentRecord {
+        market_key: market_key.to_string(),
+        model_key: model_key.to_string(),
+        display_name: "Baseline".to_string(),
+        version: version.to_string(),
+        parameters: json!({"threshold_bps": 4}),
+        status: "active".to_string(),
+        created_at: OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+fn notification_channel(market_key: &str, name: &str, enabled: bool) -> NotificationChannelRecord {
+    NotificationChannelRecord {
+        id: Uuid::new_v4(),
+        market_key: market_key.to_string(),
+        channel_type: "feishu".to_string(),
+        name: name.to_string(),
+        webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/abcd".to_string(),
+        enabled,
+        created_at: OffsetDateTime::UNIX_EPOCH,
     }
 }
