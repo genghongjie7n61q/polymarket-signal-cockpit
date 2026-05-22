@@ -174,6 +174,35 @@ pub struct NewRuntimeEvent {
     pub details: Value,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewBacktestRun {
+    pub market_key: String,
+    pub model_key: String,
+    pub display_name: String,
+    pub model_version: String,
+    pub parameters: Value,
+    pub window_start: OffsetDateTime,
+    pub window_end: OffsetDateTime,
+    pub metrics: Value,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct BacktestRunRecord {
+    pub id: Uuid,
+    pub market_key: String,
+    pub model_key: String,
+    pub display_name: String,
+    pub model_version: String,
+    pub parameters: Value,
+    pub started_at: OffsetDateTime,
+    pub finished_at: Option<OffsetDateTime>,
+    pub window_start: OffsetDateTime,
+    pub window_end: OffsetDateTime,
+    pub metrics: Value,
+    pub status: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
 pub struct RuntimeEventRecord {
     pub id: Uuid,

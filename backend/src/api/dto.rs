@@ -5,8 +5,8 @@ use crate::realtime::{
     RealtimeRuntimeSnapshot,
 };
 use crate::storage::{
-    CandleRecord, ModelAssignmentRecord, NotificationChannelRecord, SignalWithMarketRecord,
-    StorageWriterSnapshot,
+    BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NotificationChannelRecord,
+    SignalWithMarketRecord, StorageWriterSnapshot,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -134,6 +134,27 @@ pub struct NotificationChannelDto {
     pub created_at: time::OffsetDateTime,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BacktestsResponseDto {
+    pub runs: Vec<BacktestRunDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BacktestRunDto {
+    pub id: uuid::Uuid,
+    pub market_key: String,
+    pub model_key: String,
+    pub display_name: String,
+    pub model_version: String,
+    pub parameters: serde_json::Value,
+    pub started_at: time::OffsetDateTime,
+    pub finished_at: Option<time::OffsetDateTime>,
+    pub window_start: time::OffsetDateTime,
+    pub window_end: time::OffsetDateTime,
+    pub metrics: serde_json::Value,
+    pub status: String,
+}
+
 impl MarketTickDto {
     pub fn from_tick(tick: &MarketTick) -> Self {
         Self {
@@ -236,6 +257,25 @@ impl NotificationChannelDto {
             webhook_url_masked: mask_webhook_url(&record.webhook_url),
             enabled: record.enabled,
             created_at: record.created_at,
+        }
+    }
+}
+
+impl BacktestRunDto {
+    pub fn from_record(record: BacktestRunRecord) -> Self {
+        Self {
+            id: record.id,
+            market_key: record.market_key,
+            model_key: record.model_key,
+            display_name: record.display_name,
+            model_version: record.model_version,
+            parameters: record.parameters,
+            started_at: record.started_at,
+            finished_at: record.finished_at,
+            window_start: record.window_start,
+            window_end: record.window_end,
+            metrics: record.metrics,
+            status: record.status,
         }
     }
 }

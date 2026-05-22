@@ -5,11 +5,11 @@ use polymarket_backend::{
     realtime::{MarketTick, RealtimeBus, RealtimeEvent, RealtimeRuntime, RealtimeStateOwner},
     router::{build_router, build_router_with_runtime, build_router_with_storage},
     storage::{
-        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
-        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
-        SignalRecord, SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository,
-        StorageWriter, StorageWriterRuntime, TickRecord,
+        BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
+        NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
+        NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick,
+        RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageCommand, StorageError,
+        StorageRepository, StorageWriter, StorageWriterRuntime, TickRecord,
     },
 };
 use serde_json::{json, Value};
@@ -258,5 +258,21 @@ impl StorageRepository for HealthRepository {
         _channel: &NewNotificationChannel,
     ) -> Result<NotificationChannelRecord, StorageError> {
         unreachable!("health test does not upsert notification channels")
+    }
+
+    async fn insert_backtest_run(
+        &self,
+        _run: &NewBacktestRun,
+    ) -> Result<BacktestRunRecord, StorageError> {
+        unreachable!("health test does not insert backtest runs")
+    }
+
+    async fn latest_backtest_runs(
+        &self,
+        _market_key: Option<&str>,
+        _model_key: Option<&str>,
+        _limit: i64,
+    ) -> Result<Vec<BacktestRunRecord>, StorageError> {
+        unreachable!("health test does not query backtest runs")
     }
 }

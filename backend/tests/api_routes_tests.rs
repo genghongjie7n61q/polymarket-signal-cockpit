@@ -9,10 +9,11 @@ use polymarket_backend::{
     },
     router::{build_router_with_runtime, build_router_with_runtime_and_storage},
     storage::{
-        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
-        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
-        SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository, TickRecord,
+        BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
+        NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
+        NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick,
+        RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository,
+        TickRecord,
     },
 };
 use serde_json::{json, Value};
@@ -420,6 +421,37 @@ async fn notification_channels_api_upserts_feishu_channel() {
     );
 }
 
+#[tokio::test]
+async fn backtests_api_returns_latest_runs_for_market_and_model() {
+    let app = build_test_app_with_repository(ApiRepository {
+        backtest_runs: vec![backtest_run("btc5m", "baseline_direction", "0.1.0")],
+        ..Default::default()
+    })
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/backtests?market_key=btc5m&model_key=baseline_direction&limit=5")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["runs"].as_array().expect("runs").len(), 1);
+    assert_eq!(json["runs"][0]["market_key"], "btc5m");
+    assert_eq!(json["runs"][0]["model_key"], "baseline_direction");
+    assert_eq!(json["runs"][0]["metrics"]["eligible"], false);
+}
+
 async fn build_test_app_with_tick() -> axum::Router {
     let config = AppConfig::from_env_map([
         ("POLY_ENV".to_string(), "local".to_string()),
@@ -466,6 +498,7 @@ async fn build_test_app_with_repository(repository: ApiRepository) -> axum::Rout
 struct ApiRepository {
     candles: Vec<CandleRecord>,
     signals: Vec<SignalWithMarketRecord>,
+    backtest_runs: Vec<BacktestRunRecord>,
     assignments: Arc<Mutex<Vec<ModelAssignmentRecord>>>,
     channels: Arc<Mutex<Vec<NotificationChannelRecord>>>,
 }
@@ -596,6 +629,29 @@ impl StorageRepository for ApiRepository {
         channels.push(record.clone());
         Ok(record)
     }
+
+    async fn insert_backtest_run(
+        &self,
+        _run: &NewBacktestRun,
+    ) -> Result<BacktestRunRecord, StorageError> {
+        unreachable!("api route test does not insert backtest runs")
+    }
+
+    async fn latest_backtest_runs(
+        &self,
+        market_key: Option<&str>,
+        model_key: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<BacktestRunRecord>, StorageError> {
+        Ok(self
+            .backtest_runs
+            .iter()
+            .filter(|run| market_key.is_none_or(|value| run.market_key == value))
+            .filter(|run| model_key.is_none_or(|value| run.model_key == value))
+            .take(limit.clamp(1, 100) as usize)
+            .cloned()
+            .collect())
+    }
 }
 
 fn model_assignment(market_key: &str, model_key: &str, version: &str) -> ModelAssignmentRecord {
@@ -619,5 +675,27 @@ fn notification_channel(market_key: &str, name: &str, enabled: bool) -> Notifica
         webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/abcd".to_string(),
         enabled,
         created_at: OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+fn backtest_run(market_key: &str, model_key: &str, model_version: &str) -> BacktestRunRecord {
+    BacktestRunRecord {
+        id: Uuid::new_v4(),
+        market_key: market_key.to_string(),
+        model_key: model_key.to_string(),
+        display_name: "Baseline".to_string(),
+        model_version: model_version.to_string(),
+        parameters: json!({"threshold_bps": 4}),
+        started_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(120),
+        finished_at: Some(OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(121)),
+        window_start: OffsetDateTime::UNIX_EPOCH,
+        window_end: OffsetDateTime::UNIX_EPOCH + time::Duration::minutes(5),
+        metrics: json!({
+            "trades": 12,
+            "wins": 7,
+            "wilson_lower_bound": "0.32",
+            "eligible": false
+        }),
+        status: "completed".to_string(),
     }
 }

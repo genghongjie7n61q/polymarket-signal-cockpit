@@ -8,11 +8,11 @@ use std::{
 
 use async_trait::async_trait;
 use polymarket_backend::storage::{
-    CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
-    NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-    NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
-    SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository, StorageWriter,
-    TickRecord,
+    BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
+    NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
+    NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
+    SignalRecord, SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository,
+    StorageWriter, TickRecord,
 };
 use serde_json::json;
 use time::OffsetDateTime;
@@ -315,5 +315,23 @@ impl StorageRepository for FakeRepository {
         _channel: &NewNotificationChannel,
     ) -> Result<NotificationChannelRecord, StorageError> {
         unreachable!("writer test does not upsert notification channels")
+    }
+
+    async fn insert_backtest_run(
+        &self,
+        _run: &NewBacktestRun,
+    ) -> Result<BacktestRunRecord, StorageError> {
+        self.maybe_fail().await?;
+        unreachable!("writer test does not insert backtest runs")
+    }
+
+    async fn latest_backtest_runs(
+        &self,
+        _market_key: Option<&str>,
+        _model_key: Option<&str>,
+        _limit: i64,
+    ) -> Result<Vec<BacktestRunRecord>, StorageError> {
+        self.maybe_fail().await?;
+        Ok(Vec::new())
     }
 }

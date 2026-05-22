@@ -2,7 +2,7 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     realtime::MarketKey,
     storage::{
-        connect_pool, run_migrations, NewModelAssignment, NewNotificationChannel,
+        connect_pool, run_migrations, NewBacktestRun, NewModelAssignment, NewNotificationChannel,
         NewNotificationDelivery, NewRawMarketEvent, NewSignal, NewTick, PgPoolOptionsConfig,
         PostgresStorage, StorageRepository,
     },
@@ -543,6 +543,132 @@ async fn repository_lists_and_upserts_notification_channels_by_market() {
     ctx.cleanup().await;
 }
 
+#[tokio::test]
+async fn repository_inserts_and_lists_backtest_runs() {
+    let ctx = TestContext::create().await;
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let model_key = format!("backtest-baseline-{}", ctx.suffix);
+
+    let inserted = storage
+        .insert_backtest_run(&NewBacktestRun {
+            market_key: ctx.market_key.clone(),
+            model_key: model_key.clone(),
+            display_name: "Backtest Baseline".to_string(),
+            model_version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 4}),
+            window_start: ctx.window_start,
+            window_end: ctx.window_start + Duration::minutes(5),
+            metrics: json!({"trades": 3, "wins": 2, "eligible": false}),
+            status: "completed".to_string(),
+        })
+        .await
+        .expect("insert backtest run");
+
+    let runs = storage
+        .latest_backtest_runs(Some(&ctx.market_key), Some(&model_key), 10)
+        .await
+        .expect("latest runs");
+
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].id, inserted.id);
+    assert_eq!(runs[0].market_key, ctx.market_key);
+    assert_eq!(runs[0].model_key, model_key);
+    assert_eq!(runs[0].metrics["trades"], 3);
+    assert!(runs[0].finished_at.is_some());
+
+    ctx.cleanup().await;
+}
+
+#[tokio::test]
+async fn repository_preserves_backtest_run_parameter_snapshots() {
+    let ctx = TestContext::create().await;
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let model_key = format!("snapshot-baseline-{}", ctx.suffix);
+
+    let first = storage
+        .insert_backtest_run(&NewBacktestRun {
+            market_key: ctx.market_key.clone(),
+            model_key: model_key.clone(),
+            display_name: "Snapshot Baseline".to_string(),
+            model_version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 4}),
+            window_start: ctx.window_start,
+            window_end: ctx.window_start + Duration::minutes(5),
+            metrics: json!({"trades": 4, "wins": 3}),
+            status: "completed".to_string(),
+        })
+        .await
+        .expect("first backtest run");
+    let second = storage
+        .insert_backtest_run(&NewBacktestRun {
+            market_key: ctx.market_key.clone(),
+            model_key: model_key.clone(),
+            display_name: "Snapshot Baseline".to_string(),
+            model_version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 8}),
+            window_start: ctx.window_start + Duration::minutes(5),
+            window_end: ctx.window_start + Duration::minutes(10),
+            metrics: json!({"trades": 5, "wins": 4}),
+            status: "completed".to_string(),
+        })
+        .await
+        .expect("second backtest run");
+
+    let runs = storage
+        .latest_backtest_runs(Some(&ctx.market_key), Some(&model_key), 10)
+        .await
+        .expect("latest runs");
+    let first_record = runs
+        .iter()
+        .find(|run| run.id == first.id)
+        .expect("first run should still be listed");
+    let second_record = runs
+        .iter()
+        .find(|run| run.id == second.id)
+        .expect("second run should be listed");
+
+    assert_eq!(first_record.parameters, json!({"threshold_bps": 4}));
+    assert_eq!(second_record.parameters, json!({"threshold_bps": 8}));
+
+    ctx.cleanup().await;
+}
+
+#[tokio::test]
+async fn repository_backtest_run_does_not_mutate_active_assignment_parameters() {
+    let ctx = TestContext::create().await;
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let model_key = format!("baseline-{}", ctx.suffix);
+
+    storage
+        .insert_backtest_run(&NewBacktestRun {
+            market_key: ctx.market_key.clone(),
+            model_key: model_key.clone(),
+            display_name: "Baseline Test".to_string(),
+            model_version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 99}),
+            window_start: ctx.window_start,
+            window_end: ctx.window_start + Duration::minutes(5),
+            metrics: json!({"trades": 1, "wins": 1}),
+            status: "completed".to_string(),
+        })
+        .await
+        .expect("backtest run insert");
+
+    let assignments = storage
+        .list_model_assignments()
+        .await
+        .expect("assignment list");
+    let active = assignments
+        .into_iter()
+        .find(|assignment| assignment.market_key == ctx.market_key)
+        .expect("active assignment should exist");
+
+    assert_eq!(active.model_key, model_key);
+    assert_eq!(active.parameters, json!({"threshold_bps": 4}));
+
+    ctx.cleanup().await;
+}
+
 struct TestContext {
     pool: PgPool,
     suffix: String,
@@ -690,6 +816,12 @@ impl TestContext {
     }
 
     async fn cleanup(&self) {
+        sqlx::query("DELETE FROM backtest_runs WHERE market_id = $1")
+            .bind(self.market_id)
+            .execute(&self.pool)
+            .await
+            .expect("backtest run cleanup");
+
         sqlx::query(
             r#"
             DELETE FROM notification_deliveries
