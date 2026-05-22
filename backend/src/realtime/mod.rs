@@ -12,8 +12,10 @@ pub use bus::{RealtimeBus, RealtimeBusSnapshot, RealtimeEvent};
 pub use candle::{CandleAggregator, CandleSnapshot};
 pub use collector::{
     build_coinbase_heartbeat_subscribe_message, build_coinbase_subscribe_message,
-    handle_coinbase_ws_message, run_coinbase_ws_collector_until, CoinbaseCollectorConfig,
-    CollectorEvent, CollectorEventSink, CollectorIngress, CollectorRunError,
+    build_polymarket_prices_request, extract_polymarket_market, handle_coinbase_ws_message,
+    merge_polymarket_snapshot_payload, polymarket_event_slug_at, run_coinbase_ws_collector_until,
+    run_polymarket_snapshot_refresher_until, CoinbaseCollectorConfig, CollectorEvent,
+    CollectorEventSink, CollectorIngress, CollectorRunError, PolymarketMarketMetadata,
     PolymarketSnapshotRefresherConfig, COINBASE_WS_ENDPOINT, POLYMARKET_MARKET_WS_ENDPOINT,
 };
 pub use normalize::{normalize_coinbase_ticker, normalize_polymarket_snapshot};

@@ -1,6 +1,7 @@
 use polymarket_backend::realtime::{
-    build_coinbase_subscribe_message, handle_coinbase_ws_message, CoinbaseCollectorConfig,
-    CollectorEvent, CollectorEventSink, CollectorIngress, MarketKey,
+    build_coinbase_subscribe_message, build_polymarket_prices_request, extract_polymarket_market,
+    handle_coinbase_ws_message, merge_polymarket_snapshot_payload, polymarket_event_slug_at,
+    CoinbaseCollectorConfig, CollectorEvent, CollectorEventSink, CollectorIngress, MarketKey,
     PolymarketSnapshotRefresherConfig, RealtimeEvent, COINBASE_WS_ENDPOINT,
 };
 use serde_json::json;
@@ -150,6 +151,111 @@ fn coinbase_ws_handler_publishes_ticker_and_heartbeat_messages() {
         RealtimeEvent::SourceHeartbeat { source, received_at: ts }
             if source == "coinbase" && *ts == received_at
     ));
+}
+
+#[test]
+fn polymarket_event_slug_uses_supported_window_boundaries() {
+    let ts = OffsetDateTime::from_unix_timestamp(1_779_414_219).expect("valid ts");
+
+    assert_eq!(
+        polymarket_event_slug_at(MarketKey::Btc5m, ts),
+        "btc-updown-5m-1779414000"
+    );
+    assert_eq!(
+        polymarket_event_slug_at(MarketKey::Eth15m, ts),
+        "eth-updown-15m-1779413400"
+    );
+}
+
+#[test]
+fn polymarket_gamma_event_extracts_tokens_and_fallback_prices() {
+    let event = json!({
+        "slug": "btc-updown-5m-1779411300",
+        "markets": [{
+            "slug": "btc-updown-5m-1779411300",
+            "outcomes": "[\"Up\", \"Down\"]",
+            "outcomePrices": "[\"0.505\", \"0.495\"]",
+            "clobTokenIds": "[\"up-token\", \"down-token\"]",
+            "liquidity": "12272.3924",
+            "spread": 0.01,
+            "acceptingOrders": true,
+            "closed": false
+        }]
+    });
+
+    let market = extract_polymarket_market(MarketKey::Btc5m, "btc-updown-5m-1779411300", &event)
+        .expect("market metadata should parse");
+
+    assert_eq!(market.event_slug, "btc-updown-5m-1779411300");
+    assert_eq!(market.up_token_id, "up-token");
+    assert_eq!(market.down_token_id, "down-token");
+    assert_eq!(market.fallback_up_price.as_deref(), Some("0.505"));
+    assert_eq!(market.fallback_down_price.as_deref(), Some("0.495"));
+    assert_eq!(market.liquidity.as_deref(), Some("12272.3924"));
+}
+
+#[test]
+fn polymarket_gamma_event_rejects_missing_requested_market_slug() {
+    let event = json!({
+        "slug": "btc-updown-5m-1779411300",
+        "markets": [{
+            "slug": "btc-updown-5m-1779411000",
+            "outcomes": "[\"Up\", \"Down\"]",
+            "outcomePrices": "[\"0.505\", \"0.495\"]",
+            "clobTokenIds": "[\"wrong-up-token\", \"wrong-down-token\"]"
+        }]
+    });
+
+    let error = extract_polymarket_market(MarketKey::Btc5m, "btc-updown-5m-1779411300", &event)
+        .expect_err("wrong market slug should not be used as fallback");
+
+    assert!(error
+        .to_string()
+        .contains("missing market slug btc-updown-5m-1779411300"));
+}
+
+#[test]
+fn polymarket_snapshot_payload_prefers_clob_prices_over_gamma_prices() {
+    let event = json!({
+        "slug": "btc-updown-5m-1779411300",
+        "markets": [{
+            "slug": "btc-updown-5m-1779411300",
+            "outcomes": "[\"Up\", \"Down\"]",
+            "outcomePrices": "[\"0.505\", \"0.495\"]",
+            "clobTokenIds": "[\"up-token\", \"down-token\"]",
+            "liquidity": "12272.3924",
+            "spread": 0.01
+        }]
+    });
+    let market = extract_polymarket_market(MarketKey::Btc5m, "btc-updown-5m-1779411300", &event)
+        .expect("market metadata should parse");
+    let prices = json!({
+        "up-token": { "BUY": "0.87" },
+        "down-token": { "BUY": "0.12" }
+    });
+
+    let payload =
+        merge_polymarket_snapshot_payload(&market, &prices).expect("snapshot payload should merge");
+
+    assert_eq!(payload["event_slug"], "btc-updown-5m-1779411300");
+    assert_eq!(payload["up_price"], "0.87");
+    assert_eq!(payload["down_price"], "0.12");
+    assert_eq!(payload["liquidity"], "12272.3924");
+    assert_eq!(payload["up_token_id"], "up-token");
+    assert_eq!(payload["down_token_id"], "down-token");
+}
+
+#[test]
+fn polymarket_prices_request_uses_buy_side_for_up_and_down_tokens() {
+    let request = build_polymarket_prices_request("up-token", "down-token");
+
+    assert_eq!(
+        request,
+        json!([
+            { "token_id": "up-token", "side": "BUY" },
+            { "token_id": "down-token", "side": "BUY" }
+        ])
+    );
 }
 
 #[derive(Clone, Default)]

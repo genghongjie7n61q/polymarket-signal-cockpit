@@ -77,3 +77,19 @@ fn polymarket_snapshot_json_becomes_typed_snapshot() {
         Some(BigDecimal::from_str("12500.75").unwrap())
     );
 }
+
+#[test]
+fn polymarket_snapshot_uses_explicit_spread_when_present() {
+    let captured_at = OffsetDateTime::UNIX_EPOCH + Duration::seconds(1_779_330_300);
+    let payload = json!({
+        "event_slug": "btc-updown-5m-1779330300",
+        "up_price": "0.87",
+        "down_price": "0.12",
+        "spread": "0.01"
+    });
+
+    let snapshot = normalize_polymarket_snapshot(MarketKey::Btc5m, &payload, captured_at)
+        .expect("snapshot should normalize");
+
+    assert_eq!(snapshot.spread, Some(BigDecimal::from_str("0.01").unwrap()));
+}

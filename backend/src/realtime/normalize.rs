@@ -39,10 +39,12 @@ pub fn normalize_polymarket_snapshot(
     let event_slug = required_str(payload, "event_slug")?.to_string();
     let up_price = optional_decimal(payload, "up_price")?;
     let down_price = optional_decimal(payload, "down_price")?;
-    let spread = match (&up_price, &down_price) {
-        (Some(up), Some(down)) if up >= down => Some(up - down),
-        (Some(up), Some(down)) => Some(down - up),
-        _ => optional_decimal(payload, "spread")?,
+    let explicit_spread = optional_decimal(payload, "spread")?;
+    let spread = match (explicit_spread, &up_price, &down_price) {
+        (Some(spread), _, _) => Some(spread),
+        (None, Some(up), Some(down)) if up >= down => Some(up - down),
+        (None, Some(up), Some(down)) => Some(down - up),
+        (None, _, _) => None,
     };
     let liquidity = optional_decimal(payload, "liquidity")?;
 

@@ -19,7 +19,7 @@
 - Modify: `backend/src/lib.rs`
 - Test: `backend/tests/realtime_normalization_tests.rs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create tests that assert:
 - Coinbase ticker JSON for `BTC-USD` becomes a `MarketTick`.
@@ -189,3 +189,40 @@ Expected:
 - [ ] Runtime state is owned by one task.
 - [ ] Real external collectors are isolated from pure parsing/state tests.
 - [ ] dev-2 validation commands are recorded in Linear.
+
+### Task 6: Polymarket Window Discovery And Snapshot Refresh
+
+**Files:**
+- Modify: `backend/src/realtime/collector.rs`
+- Modify: `backend/src/realtime/window.rs`
+- Modify: `backend/src/main.rs`
+- Modify: `backend/Cargo.toml`
+- Test: `backend/tests/realtime_collector_tests.rs`
+
+- [ ] **Step 1: Write failing tests**
+
+Test:
+- Current BTC 5m / ETH 15m timestamps derive the canonical Polymarket event slug.
+- Gamma event payloads expose Up/Down CLOB token ids and fallback outcome prices.
+- CLOB `/prices` responses override fallback prices and produce a normalized snapshot payload.
+
+Expected before implementation: compile failures for missing Polymarket discovery/snapshot helpers.
+
+- [x] **Step 2: Implement read-only Polymarket data path**
+
+Add:
+- `PolymarketSnapshotRefresherConfig` endpoints for Gamma event-by-slug and CLOB prices.
+- HTTP proxy support through `POLYMARKET_HTTP_PROXY`.
+- A single-refresh function that computes the active window, fetches Gamma metadata, fetches CLOB prices for Up/Down token ids, and publishes `CollectorEvent::PolymarketSnapshot`.
+- A loop runner that refreshes all configured markets at the configured interval and emits observable warnings/heartbeats.
+
+- [x] **Step 3: Wire runtime and verify on dev-2**
+
+Run backend tests inside the dev-2 Rust container, then redeploy the dev-2 compose stack with:
+- `COINBASE_WS_PROXY=http://127.0.0.1:7890`
+- `POLYMARKET_HTTP_PROXY=http://127.0.0.1:7890`
+
+Observed:
+- `/healthz` at `http://192.168.103.157:8080/healthz` reports `sources.polymarket=fresh`.
+- Realtime processed and storage writer counters continue increasing.
+- No private key, signing, or order-placement path is introduced.

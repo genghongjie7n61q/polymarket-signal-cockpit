@@ -3,7 +3,8 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 use polymarket_backend::{
     config::AppConfig,
     realtime::{
-        run_coinbase_ws_collector_until, CoinbaseCollectorConfig, MarketKey, RealtimeRuntime,
+        run_coinbase_ws_collector_until, run_polymarket_snapshot_refresher_until,
+        CoinbaseCollectorConfig, MarketKey, PolymarketSnapshotRefresherConfig, RealtimeRuntime,
         DEFAULT_REALTIME_QUEUE_CAPACITY,
     },
     router::build_router_with_runtime,
@@ -64,6 +65,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     Err(error) => {
                         tracing::warn!(%error, "coinbase websocket collector failed");
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        });
+    }
+    if let Some(runtime) = realtime.clone() {
+        tokio::spawn(async move {
+            loop {
+                tracing::info!("starting polymarket snapshot refresher");
+                let mut polymarket_config = PolymarketSnapshotRefresherConfig::default();
+                polymarket_config.http_proxy = std::env::var("POLYMARKET_HTTP_PROXY")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty());
+                let result = run_polymarket_snapshot_refresher_until(
+                    polymarket_config,
+                    runtime.clone(),
+                    usize::MAX,
+                )
+                .await;
+                match result {
+                    Ok(published) => {
+                        tracing::warn!(published, "polymarket snapshot refresher stopped");
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "polymarket snapshot refresher failed");
                     }
                 }
                 tokio::time::sleep(Duration::from_secs(5)).await;

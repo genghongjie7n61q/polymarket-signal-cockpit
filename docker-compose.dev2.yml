@@ -32,6 +32,7 @@ services:
       SUPPORTED_MARKETS: ${SUPPORTED_MARKETS:-btc5m,eth15m}
       DATABASE_URL: postgres://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-dev2-local-polymarket-password}@127.0.0.1:${DEV2_POSTGRES_HOST_PORT:-15432}/${POSTGRES_DB:-polymarket}
       COINBASE_WS_PROXY: ${COINBASE_WS_PROXY:-http://127.0.0.1:7890}
+      POLYMARKET_HTTP_PROXY: ${POLYMARKET_HTTP_PROXY:-http://127.0.0.1:7890}
       FEISHU_WEBHOOK_URL: ${FEISHU_WEBHOOK_URL:-}
     volumes:
       - .:/workspace

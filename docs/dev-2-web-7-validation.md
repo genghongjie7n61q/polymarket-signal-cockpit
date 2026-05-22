@@ -1,16 +1,16 @@
 # WEB-7 dev-2 Validation Notes
 
-Date: 2026-05-21
+Date: 2026-05-21, updated 2026-05-22
 
 ## Commands
 
 Backend tests:
 
 ```bash
-podman run --rm --network polymarket-signal-cockpit_default \
+podman run --rm --network host \
   -e CARGO_HOME=/cargo \
   -e CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse \
-  -e DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@postgres:5432/polymarket \
+  -e DATABASE_URL=postgres://polymarket:dev2-local-polymarket-password@127.0.0.1:15432/polymarket \
   -v "$HOME/.cache/polymarket-cargo/cargo":/cargo \
   -v "$HOME/.cache/polymarket-cargo/target":/workspace/target \
   -v "$PWD":/workspace \
@@ -46,8 +46,14 @@ podman rm -f polymarket-backend-web7-smoke
 ## Results
 
 - `cargo test -p polymarket-backend --locked` passed in the dev-2 Rust 1.87 container.
+- `cargo test -p polymarket-backend --locked` passed again after adding the Polymarket Gamma/CLOB snapshot refresher, with `DATABASE_URL` pointed at the dev-2 Postgres port `127.0.0.1:15432`.
 - The Coinbase realtime smoke reached `realtime.bus.accepted=245`, `realtime.state.metrics.processed=245`, `sources.coinbase=fresh`, and `markets_tracked=2`.
 - The smoke container was removed after validation.
+- Read-only Polymarket API checks through clash reached:
+  - Gamma event-by-slug: `https://gamma-api.polymarket.com/events/slug/{event_slug}`
+  - CLOB prices: `https://clob.polymarket.com/prices`
+- After redeploying `docker-compose.dev2.yml`, `curl -fsS http://192.168.103.157:8080/healthz` reported `sources.coinbase=fresh`, `sources.polymarket=fresh`, `realtime.bus.accepted=111`, `realtime.state.metrics.processed=111`, and `storage_writer.written=95`.
+- Code review follow-up added regressions for exact Gamma market slug matching and explicit spread preservation; full dev-2 backend tests still passed.
 
 ## Network Findings
 
@@ -59,7 +65,7 @@ podman rm -f polymarket-backend-web7-smoke
 ## Follow-up
 
 - Chosen dev-2 deployment scheme: use `docker-compose.dev2.yml`.
-  - `backend` runs with `network_mode: host`, so `COINBASE_WS_PROXY=http://127.0.0.1:7890` reaches host-local clash without exposing clash to the LAN.
+  - `backend` runs with `network_mode: host`, so `COINBASE_WS_PROXY=http://127.0.0.1:7890` and `POLYMARKET_HTTP_PROXY=http://127.0.0.1:7890` reach host-local clash without exposing clash to the LAN.
   - `postgres` remains containerized and publishes only `127.0.0.1:15432`.
   - `DATABASE_URL` points to `127.0.0.1:15432` from the host-network backend.
 - Start dev-2 stack:
