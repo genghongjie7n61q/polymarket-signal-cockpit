@@ -18,7 +18,12 @@ pub fn compute_backtest_metrics(
     let market_key = outputs
         .first()
         .map(|output| output.market_key.clone())
-        .unwrap_or_else(|| dataset.split_once(':').map_or(dataset, |(key, _)| key).to_string());
+        .unwrap_or_else(|| {
+            dataset
+                .split_once(':')
+                .map_or(dataset, |(key, _)| key)
+                .to_string()
+        });
 
     BacktestMetrics {
         model_key: model_key.to_string(),

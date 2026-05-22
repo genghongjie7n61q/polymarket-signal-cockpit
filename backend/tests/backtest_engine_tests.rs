@@ -14,7 +14,13 @@ fn replay_freezes_first_actionable_alert_per_window() {
         open_price: "100".parse().unwrap(),
         final_price: "101".parse().unwrap(),
         candidates: vec![
-            candidate(start + Duration::seconds(90), "Down", "0.57", "0.50", "first"),
+            candidate(
+                start + Duration::seconds(90),
+                "Down",
+                "0.57",
+                "0.50",
+                "first",
+            ),
             candidate(
                 start + Duration::seconds(180),
                 "Up",

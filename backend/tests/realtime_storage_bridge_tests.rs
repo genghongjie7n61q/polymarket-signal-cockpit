@@ -2,11 +2,11 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     realtime::{MarketKey, MarketTick, RealtimeEvent, RealtimeStorageBridge},
     storage::{
-        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
-        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
-        SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository, StorageWriter,
-        TickRecord,
+        BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
+        NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
+        NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick,
+        RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository,
+        StorageWriter, TickRecord,
     },
 };
 use std::{
@@ -170,6 +170,22 @@ impl StorageRepository for CapturedRepository {
         _channel: &NewNotificationChannel,
     ) -> Result<NotificationChannelRecord, StorageError> {
         unreachable!("bridge test does not upsert notification channels")
+    }
+
+    async fn insert_backtest_run(
+        &self,
+        _run: &NewBacktestRun,
+    ) -> Result<BacktestRunRecord, StorageError> {
+        unreachable!("bridge test does not insert backtest runs")
+    }
+
+    async fn latest_backtest_runs(
+        &self,
+        _market_key: Option<&str>,
+        _model_key: Option<&str>,
+        _limit: i64,
+    ) -> Result<Vec<BacktestRunRecord>, StorageError> {
+        unreachable!("bridge test does not query backtest runs")
     }
 }
 
