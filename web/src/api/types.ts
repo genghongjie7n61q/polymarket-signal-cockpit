@@ -165,3 +165,30 @@ export interface NotificationDeliveriesResponse {
   market_key: string;
   deliveries: NotificationDelivery[];
 }
+
+export interface UpsertNotificationChannelRequest {
+  market_key: string;
+  channel_type: "feishu";
+  name: string;
+  webhook_url: string;
+  enabled: boolean;
+}
+
+export interface FeishuDryRunRequest {
+  market_key: string;
+  channel_name?: string;
+}
+
+export interface FeishuDryRunResponse {
+  market_key: string;
+  card_summary: {
+    title: string;
+    reason: string;
+  };
+  sent: Array<{
+    channel: NotificationChannel;
+    status: string;
+    response_summary: string | null;
+  }>;
+  notification: Record<string, JsonValue> | null;
+}

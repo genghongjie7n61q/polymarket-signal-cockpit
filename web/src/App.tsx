@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ChartPanel } from "./components/ChartPanel";
 import { InspectorTabs } from "./components/InspectorTabs";
 import { MarketCard } from "./components/MarketCard";
@@ -14,6 +15,7 @@ function configuredApiBase(): string {
 }
 
 export function App({ apiBase = configuredApiBase() }: AppProps) {
+  const [adminToken, setAdminToken] = useState("");
   const cockpit = useCockpitData({ apiBase });
   const selectedMarket =
     cockpit.markets.find((market) => market.summary.market_key === cockpit.selectedMarketKey) ?? cockpit.markets[0] ?? null;
@@ -21,6 +23,18 @@ export function App({ apiBase = configuredApiBase() }: AppProps) {
   return (
     <main className="app-shell">
       <RuntimeHeader connection={cockpit.connection} generatedAt={cockpit.generatedAt} runtime={cockpit.runtime} />
+      <section className="operator-toolbar" aria-label="operator controls">
+        <label>
+          Admin Token
+          <input
+            autoComplete="off"
+            placeholder="仅保存在当前页面内存"
+            type="password"
+            value={adminToken}
+            onChange={(event) => setAdminToken(event.target.value)}
+          />
+        </label>
+      </section>
 
       {cockpit.error ? <div className="error-banner">{cockpit.error}</div> : null}
 
@@ -40,7 +54,7 @@ export function App({ apiBase = configuredApiBase() }: AppProps) {
           <RecommendationPanel market={selectedMarket} />
           <ChartPanel market={selectedMarket} />
         </div>
-        <InspectorTabs market={selectedMarket} />
+        <InspectorTabs adminToken={adminToken} apiBase={apiBase} market={selectedMarket} />
       </section>
     </main>
   );

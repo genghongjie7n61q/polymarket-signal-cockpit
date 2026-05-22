@@ -2,10 +2,14 @@ import type {
   BacktestsResponse,
   CandlesResponse,
   CockpitBootstrapResponse,
+  FeishuDryRunRequest,
+  FeishuDryRunResponse,
   ModelAssignment,
   NotificationChannelsResponse,
+  NotificationChannel,
   NotificationDeliveriesResponse,
   SignalsResponse,
+  UpsertNotificationChannelRequest,
 } from "./types";
 
 function normalizeApiBase(apiBase: string): string {
@@ -71,4 +75,20 @@ export function saveModelAssignment(
   adminToken?: string,
 ): Promise<ModelAssignment> {
   return sendJson(apiBase, `/config/model-assignments/${encodeURIComponent(marketKey)}`, "PUT", assignment, adminToken);
+}
+
+export function saveNotificationChannel(
+  apiBase: string,
+  request: UpsertNotificationChannelRequest,
+  adminToken?: string,
+): Promise<NotificationChannel> {
+  return sendJson(apiBase, "/config/notification-channels", "POST", request, adminToken);
+}
+
+export function sendFeishuDryRun(
+  apiBase: string,
+  request: FeishuDryRunRequest,
+  adminToken?: string,
+): Promise<FeishuDryRunResponse> {
+  return sendJson(apiBase, "/notifications/feishu/dry-run", "POST", request, adminToken);
 }

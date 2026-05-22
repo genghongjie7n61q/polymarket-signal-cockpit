@@ -6,7 +6,7 @@ import { InspectorTabs } from "./InspectorTabs";
 
 describe("InspectorTabs", () => {
   it("lists signals newest first", () => {
-    render(<InspectorTabs market={bootstrapFixture.markets[0]} />);
+    render(<InspectorTabs adminToken="" apiBase="/api" market={bootstrapFixture.markets[0]} />);
 
     const rows = screen.getAllByTestId("signal-row");
     expect(within(rows[0]).getByText("Actionable Alert")).toBeInTheDocument();
@@ -14,7 +14,7 @@ describe("InspectorTabs", () => {
   });
 
   it("displays backtest metrics and keeps manual run disabled until WEB-76", () => {
-    render(<InspectorTabs market={bootstrapFixture.markets[0]} />);
+    render(<InspectorTabs adminToken="" apiBase="/api" market={bootstrapFixture.markets[0]} />);
 
     fireEvent.click(screen.getByRole("tab", { name: "回测" }));
     expect(screen.getByText("trades")).toBeInTheDocument();

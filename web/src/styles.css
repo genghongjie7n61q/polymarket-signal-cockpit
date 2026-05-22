@@ -95,6 +95,7 @@ h2 {
 }
 
 .market-grid,
+.operator-toolbar,
 .workspace {
   display: grid;
   gap: 14px;
@@ -104,6 +105,34 @@ h2 {
 
 .market-grid {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.operator-toolbar {
+  background: #ffffff;
+  border: 1px solid #dde3e9;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  padding: 12px;
+}
+
+.operator-toolbar label,
+.config-form label {
+  color: #44515d;
+  display: grid;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.operator-toolbar input,
+.config-form input,
+.config-form textarea {
+  background: #ffffff;
+  border: 1px solid #cfd8e2;
+  border-radius: 6px;
+  color: #172026;
+  min-height: 36px;
+  padding: 8px 10px;
 }
 
 .workspace {
@@ -255,6 +284,7 @@ h2 {
 
 .tab-list {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
 }
@@ -306,6 +336,60 @@ h2 {
 .backtest-tab {
   display: grid;
   gap: 10px;
+}
+
+.config-form {
+  display: grid;
+  gap: 12px;
+}
+
+.checkbox-row {
+  align-items: center;
+  display: flex !important;
+  gap: 8px;
+}
+
+.checkbox-row input {
+  min-height: auto;
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.form-message {
+  color: #1e55bd;
+  font-weight: 700;
+}
+
+.channel-list {
+  display: grid;
+  gap: 8px;
+}
+
+.channel-row {
+  background: #f7f9fb;
+  border: 1px solid #edf0f2;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+}
+
+.dry-run-result {
+  background: #e8f7ef;
+  border: 1px solid #a8dfbd;
+  border-radius: 6px;
+  color: #146b37;
+  padding: 8px;
+}
+
+h3 {
+  font-size: 14px;
+  margin: 4px 0 0;
 }
 
 .metrics-grid {
