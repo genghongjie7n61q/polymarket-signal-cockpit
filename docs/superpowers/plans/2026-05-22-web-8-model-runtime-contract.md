@@ -143,7 +143,7 @@ Run `model_sizing_tests`; expected: pass.
 - Modify: `backend/src/model/mod.rs`
 - Test: `backend/tests/model_baseline_tests.rs`
 
-- [ ] **Step 1: Write failing baseline tests**
+- [x] **Step 1: Write failing baseline tests**
 
 ```rust
 #[test]
@@ -174,11 +174,11 @@ fn baseline_returns_candidate_with_ttl_limit_price_size_and_features() {
 }
 ```
 
-- [ ] **Step 2: Run RED on dev-2**
+- [x] **Step 2: Run RED on dev-2**
 
 Expected: compile failure because baseline model is missing.
 
-- [ ] **Step 3: Implement baseline model**
+- [x] **Step 3: Implement baseline model**
 
 Baseline parameters:
 
@@ -201,7 +201,7 @@ Decision rule:
 - Suggested size comes from `SizingEngine`.
 - Features include `model_key`, `model_version`, `market_key`, `return_bps`, `threshold_bps`, `elapsed_ms`, `limit_price`, and `input_snapshot_hash`.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run `model_baseline_tests`; expected: pass.
 
