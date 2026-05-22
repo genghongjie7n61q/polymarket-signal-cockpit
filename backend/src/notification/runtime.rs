@@ -72,7 +72,7 @@ impl NotificationSender for HttpNotificationSender {
             .json(&payload)
             .send()
             .await
-            .map_err(|error| NotificationError::SendFailed(error.to_string()))?;
+            .map_err(|_| NotificationError::SendFailed("request failed".to_string()))?;
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -310,7 +310,7 @@ async fn send_with_retry(
                 );
             }
             Err(error) => {
-                let error_summary = error.to_string();
+                let error_summary = error.safe_summary();
                 if attempt >= max_attempts {
                     return (
                         DeliveryAudit {
@@ -351,7 +351,18 @@ fn update_metrics(
 }
 
 fn dedupe_key(job: &NotificationJob, channel: &NotificationChannelRecord) -> String {
-    format!("{}:{}", job.signal.id, channel.id)
+    format!(
+        "{}:{}:{}:{}:{}",
+        job.signal.market_window_id,
+        job.signal.model_version_id,
+        job.signal
+            .side
+            .as_deref()
+            .unwrap_or("none")
+            .to_ascii_lowercase(),
+        job.signal.signal_type,
+        channel.id
+    )
 }
 
 fn card_input(job: &NotificationJob, channel: &NotificationChannelRecord) -> FeishuCardInput {
@@ -359,7 +370,7 @@ fn card_input(job: &NotificationJob, channel: &NotificationChannelRecord) -> Fei
         market_key: job.signal.market_key.clone(),
         market_label: market_label(&job.signal.market_key),
         window_start: job.signal.created_at,
-        window_end: job.signal.created_at,
+        window_end: job.signal.created_at + market_duration(&job.signal.market_key),
         side: job
             .signal
             .side
@@ -385,15 +396,22 @@ fn card_input(job: &NotificationJob, channel: &NotificationChannelRecord) -> Fei
             .map(ToString::to_string)
             .unwrap_or_else(|| "n/a".to_string()),
         ttl_ms: job.signal.ttl_ms.unwrap_or(0),
-        model_key: "model".to_string(),
+        model_key: "model_version_id".to_string(),
         model_version: job.signal.model_version_id.to_string(),
         reason: job.signal.reason.clone(),
         features: job.signal.features.clone(),
         channel: NotificationChannelView {
             name: channel.name.clone(),
             webhook_url_masked: mask_webhook_url(&channel.webhook_url),
-            webhook_url: channel.webhook_url.clone(),
         },
+    }
+}
+
+fn market_duration(market_key: &str) -> ::time::Duration {
+    match market_key {
+        "btc5m" => ::time::Duration::minutes(5),
+        "eth15m" => ::time::Duration::minutes(15),
+        _ => ::time::Duration::ZERO,
     }
 }
 

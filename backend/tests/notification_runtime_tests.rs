@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use polymarket_backend::{
     notification::{
         NotificationJob, NotificationRuntime, NotificationRuntimeConfig, NotificationSendOutcome,
-        NotificationSender,
+        NotificationSender, SignalNotificationBridge,
     },
     storage::{
         BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
@@ -48,7 +48,7 @@ async fn notification_runtime_sends_enabled_feishu_channels_and_audits_deliverie
     let sender = Arc::new(FakeSender::default());
     let runtime = NotificationRuntime::spawn(sender.clone(), storage_writer, 8, test_config());
     let job = job();
-    let signal_id = job.signal.id;
+    let market_window_id = job.signal.market_window_id;
 
     runtime.try_enqueue(job).expect("enqueue");
 
@@ -78,7 +78,7 @@ async fn notification_runtime_sends_enabled_feishu_channels_and_audits_deliverie
         .all(|delivery| delivery.attempt_count == 1));
     assert!(deliveries
         .iter()
-        .all(|delivery| delivery.dedupe_key.contains(&signal_id.to_string())));
+        .all(|delivery| delivery.dedupe_key.contains(&market_window_id.to_string())));
 
     drop(runtime);
     writer_task.abort();
@@ -141,6 +141,73 @@ async fn notification_runtime_dedupes_same_signal_channel() {
 
     drop(runtime);
     writer_task.abort();
+}
+
+#[tokio::test]
+async fn notification_runtime_dedupes_semantically_equivalent_regenerated_signals() {
+    let (storage_writer, writer_task, repository) = storage_writer_with_repository();
+    let sender = Arc::new(FakeSender::default());
+    let runtime = NotificationRuntime::spawn(sender.clone(), storage_writer, 8, test_config());
+    let first = single_channel_job();
+    let mut second = first.clone();
+    second.signal.id = Uuid::new_v4();
+
+    runtime.try_enqueue(first).expect("first enqueue");
+    runtime.try_enqueue(second).expect("regenerated enqueue");
+
+    wait_until(Duration::from_secs(1), || runtime.snapshot().deduped == 1).await;
+    wait_until(Duration::from_secs(1), || {
+        repository.deliveries().len() == 1
+    })
+    .await;
+
+    assert_eq!(sender.requests().len(), 1);
+
+    drop(runtime);
+    writer_task.abort();
+}
+
+#[tokio::test]
+async fn signal_notification_bridge_enqueues_actionable_signals_for_enabled_channels() {
+    let repository = Arc::new(CapturedRepository::with_channels(vec![channel(
+        "btc5m",
+        "primary",
+        true,
+        "https://open.feishu.cn/open-apis/bot/v2/hook/secret-token",
+    )]));
+    let (storage_writer, writer_task) =
+        StorageWriter::spawn(repository.clone(), 8, Duration::from_millis(5));
+    let sender = Arc::new(FakeSender::default());
+    let runtime = NotificationRuntime::spawn(sender.clone(), storage_writer, 8, test_config());
+    let (tx, rx) = tokio::sync::mpsc::channel(8);
+    let _bridge = SignalNotificationBridge::spawn(rx, repository.clone(), runtime.clone());
+
+    tx.send(signal(Uuid::new_v4(), "btc5m"))
+        .await
+        .expect("signal handoff");
+
+    wait_until(Duration::from_secs(1), || sender.requests().len() == 1).await;
+    wait_until(Duration::from_secs(1), || {
+        repository.deliveries().len() == 1
+    })
+    .await;
+
+    assert_eq!(runtime.snapshot().accepted, 1);
+
+    drop(runtime);
+    writer_task.abort();
+}
+
+#[test]
+fn notification_error_summary_redacts_feishu_webhook_secret() {
+    let error = polymarket_backend::notification::NotificationError::SendFailed(
+        "request error for https://open.feishu.cn/open-apis/bot/v2/hook/secret-token".to_string(),
+    );
+
+    let summary = error.safe_summary();
+
+    assert!(summary.contains("/hook/****"));
+    assert!(!summary.contains("secret-token"));
 }
 
 fn test_config() -> NotificationRuntimeConfig {
@@ -312,9 +379,17 @@ fn storage_writer_with_repository() -> (
 #[derive(Default)]
 struct CapturedRepository {
     deliveries: Mutex<Vec<NewNotificationDelivery>>,
+    channels: Mutex<Vec<NotificationChannelRecord>>,
 }
 
 impl CapturedRepository {
+    fn with_channels(channels: Vec<NotificationChannelRecord>) -> Self {
+        Self {
+            deliveries: Mutex::new(Vec::new()),
+            channels: Mutex::new(channels),
+        }
+    }
+
     fn deliveries(&self) -> Vec<NewNotificationDelivery> {
         self.deliveries.lock().expect("deliveries lock").clone()
     }
@@ -392,9 +467,16 @@ impl StorageRepository for CapturedRepository {
 
     async fn list_notification_channels(
         &self,
-        _market_key: &str,
+        market_key: &str,
     ) -> Result<Vec<NotificationChannelRecord>, StorageError> {
-        unreachable!("notification test does not query notification channels")
+        Ok(self
+            .channels
+            .lock()
+            .expect("channels lock")
+            .iter()
+            .filter(|channel| channel.market_key == market_key)
+            .cloned()
+            .collect())
     }
 
     async fn upsert_notification_channel(

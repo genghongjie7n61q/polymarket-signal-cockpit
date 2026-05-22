@@ -21,6 +21,14 @@ pub trait StorageRepository: Send + Sync {
     ) -> Result<RawMarketEventRecord, StorageError>;
     async fn insert_tick(&self, tick: &NewTick) -> Result<TickRecord, StorageError>;
     async fn insert_signal(&self, signal: &NewSignal) -> Result<SignalRecord, StorageError>;
+    async fn signal_with_market(
+        &self,
+        signal_id: Uuid,
+    ) -> Result<SignalWithMarketRecord, StorageError> {
+        Err(StorageError::InvalidInput(format!(
+            "signal_with_market is not implemented for {signal_id}"
+        )))
+    }
     async fn insert_notification_delivery(
         &self,
         delivery: &NewNotificationDelivery,
@@ -395,6 +403,40 @@ impl StorageRepository for PostgresStorage {
         .await?;
 
         Ok(signals)
+    }
+
+    async fn signal_with_market(
+        &self,
+        signal_id: Uuid,
+    ) -> Result<SignalWithMarketRecord, StorageError> {
+        let signal = sqlx::query_as::<_, SignalWithMarketRecord>(
+            r#"
+            SELECT
+                s.id,
+                m.market_key,
+                s.market_window_id,
+                s.model_version_id,
+                s.signal_type,
+                s.side,
+                s.confidence,
+                s.limit_price,
+                s.suggested_size,
+                s.ttl_ms,
+                s.reason,
+                s.features,
+                s.input_snapshot_hash,
+                s.created_at
+            FROM signals s
+            JOIN market_windows mw ON mw.id = s.market_window_id
+            JOIN markets m ON m.id = mw.market_id
+            WHERE s.id = $1
+            "#,
+        )
+        .bind(signal_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(signal)
     }
 
     async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError> {

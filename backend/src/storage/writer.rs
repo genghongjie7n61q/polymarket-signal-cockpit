@@ -9,8 +9,8 @@ use std::{
 use tokio::{sync::mpsc, task::JoinHandle, time};
 
 use crate::storage::{
-    NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick, StorageError,
-    StorageRepository,
+    NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+    SignalWithMarketRecord, StorageError, StorageRepository,
 };
 
 const MAX_WRITE_ATTEMPTS: u8 = 3;
@@ -119,6 +119,29 @@ impl StorageWriter {
     where
         R: StorageRepository + ?Sized + 'static,
     {
+        Self::spawn_internal(repository, capacity, None)
+    }
+
+    pub fn spawn_with_signal_notifier<R>(
+        repository: Arc<R>,
+        capacity: usize,
+        _flush_interval: Duration,
+        signal_tx: mpsc::Sender<SignalWithMarketRecord>,
+    ) -> (StorageWriterHandle, JoinHandle<()>)
+    where
+        R: StorageRepository + ?Sized + 'static,
+    {
+        Self::spawn_internal(repository, capacity, Some(signal_tx))
+    }
+
+    fn spawn_internal<R>(
+        repository: Arc<R>,
+        capacity: usize,
+        signal_tx: Option<mpsc::Sender<SignalWithMarketRecord>>,
+    ) -> (StorageWriterHandle, JoinHandle<()>)
+    where
+        R: StorageRepository + ?Sized + 'static,
+    {
         let (tx, mut rx) = mpsc::channel::<StorageCommand>(capacity);
         let metrics = Arc::new(StorageWriterMetrics::default());
         let handle = StorageWriterHandle {
@@ -129,10 +152,10 @@ impl StorageWriter {
 
         let join = tokio::spawn(async move {
             while let Some(command) = rx.recv().await {
-                write_one(repository.as_ref(), command, &metrics).await;
+                write_one(repository.as_ref(), command, &metrics, signal_tx.as_ref()).await;
 
                 while let Ok(command) = rx.try_recv() {
-                    write_one(repository.as_ref(), command, &metrics).await;
+                    write_one(repository.as_ref(), command, &metrics, signal_tx.as_ref()).await;
                 }
             }
         });
@@ -141,8 +164,12 @@ impl StorageWriter {
     }
 }
 
-async fn write_one<R>(repository: &R, command: StorageCommand, metrics: &StorageWriterMetrics)
-where
+async fn write_one<R>(
+    repository: &R,
+    command: StorageCommand,
+    metrics: &StorageWriterMetrics,
+    signal_tx: Option<&mpsc::Sender<SignalWithMarketRecord>>,
+) where
     R: StorageRepository + ?Sized,
 {
     let mut attempt = 1;
@@ -152,7 +179,13 @@ where
                 repository.insert_raw_market_event(event).await.map(|_| ())
             }
             StorageCommand::Tick(tick) => repository.insert_tick(tick).await.map(|_| ()),
-            StorageCommand::Signal(signal) => repository.insert_signal(signal).await.map(|_| ()),
+            StorageCommand::Signal(signal) => match repository.insert_signal(signal).await {
+                Ok(record) => {
+                    notify_inserted_signal(repository, record.id, signal_tx).await;
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            },
             StorageCommand::NotificationDelivery(delivery) => repository
                 .insert_notification_delivery(delivery)
                 .await
@@ -179,5 +212,27 @@ where
             metrics.failed.fetch_add(1, Ordering::Relaxed);
             tracing::warn!(%error, "storage writer command failed");
         }
+    }
+}
+
+async fn notify_inserted_signal<R>(
+    repository: &R,
+    signal_id: uuid::Uuid,
+    signal_tx: Option<&mpsc::Sender<SignalWithMarketRecord>>,
+) where
+    R: StorageRepository + ?Sized,
+{
+    let Some(signal_tx) = signal_tx else {
+        return;
+    };
+    let signal = match repository.signal_with_market(signal_id).await {
+        Ok(signal) => signal,
+        Err(error) => {
+            tracing::warn!(%error, %signal_id, "failed to load inserted signal for notification");
+            return;
+        }
+    };
+    if let Err(error) = signal_tx.try_send(signal) {
+        tracing::warn!(%error, %signal_id, "dropped inserted signal notification handoff");
     }
 }

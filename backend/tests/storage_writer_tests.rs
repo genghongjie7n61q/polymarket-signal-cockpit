@@ -1,7 +1,7 @@
 use std::{
     sync::{
         atomic::{AtomicI64, AtomicU64, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -123,6 +123,43 @@ async fn storage_writer_exits_when_last_handle_is_dropped() {
         .expect("writer task should finish cleanly");
 }
 
+#[tokio::test]
+async fn storage_writer_hands_off_inserted_signals_without_blocking() {
+    let repo = Arc::new(FakeRepository::default());
+    let (signal_tx, mut signal_rx) = tokio::sync::mpsc::channel(1);
+    let (handle, join) =
+        StorageWriter::spawn_with_signal_notifier(repo, 4, Duration::from_millis(10), signal_tx);
+    let market_window_id = Uuid::new_v4();
+
+    handle
+        .try_enqueue(StorageCommand::Signal(NewSignal {
+            market_window_id,
+            model_version_id: Uuid::new_v4(),
+            signal_type: "actionable_alert".to_string(),
+            side: Some("Up".to_string()),
+            confidence: Some("0.72".parse().unwrap()),
+            limit_price: Some("0.53".parse().unwrap()),
+            suggested_size: Some("1.25".parse().unwrap()),
+            ttl_ms: Some(15_000),
+            reason: "handoff test".to_string(),
+            features: json!({"test": true}),
+            input_snapshot_hash: "snapshot-handoff".to_string(),
+        }))
+        .expect("signal enqueue should succeed");
+
+    let signal = tokio::time::timeout(Duration::from_secs(1), signal_rx.recv())
+        .await
+        .expect("signal should be handed off")
+        .expect("signal handoff channel should stay open");
+
+    assert_eq!(signal.market_key, "btc5m");
+    assert_eq!(signal.market_window_id, market_window_id);
+    assert_eq!(signal.signal_type, "actionable_alert");
+
+    drop(handle);
+    join.abort();
+}
+
 async fn wait_until<F>(timeout: Duration, condition: F)
 where
     F: Fn() -> bool,
@@ -151,6 +188,7 @@ struct FakeRepository {
     runtime_events: AtomicU64,
     failures_remaining: AtomicI64,
     delay: Option<Duration>,
+    last_signal: Mutex<Option<SignalWithMarketRecord>>,
 }
 
 impl FakeRepository {
@@ -163,6 +201,7 @@ impl FakeRepository {
             runtime_events: AtomicU64::new(0),
             failures_remaining: AtomicI64::new(count),
             delay: None,
+            last_signal: Mutex::new(None),
         }
     }
 
@@ -171,6 +210,7 @@ impl FakeRepository {
             runtime_events: AtomicU64::new(0),
             failures_remaining: AtomicI64::new(0),
             delay: Some(delay),
+            last_signal: Mutex::new(None),
         }
     }
 
@@ -221,8 +261,9 @@ impl StorageRepository for FakeRepository {
 
     async fn insert_signal(&self, signal: &NewSignal) -> Result<SignalRecord, StorageError> {
         self.maybe_fail().await?;
-        Ok(SignalRecord {
-            id: Uuid::new_v4(),
+        let id = Uuid::new_v4();
+        let record = SignalRecord {
+            id,
             market_window_id: signal.market_window_id,
             model_version_id: signal.model_version_id,
             signal_type: signal.signal_type.clone(),
@@ -235,7 +276,36 @@ impl StorageRepository for FakeRepository {
             features: signal.features.clone(),
             input_snapshot_hash: signal.input_snapshot_hash.clone(),
             created_at: OffsetDateTime::UNIX_EPOCH,
-        })
+        };
+        *self.last_signal.lock().expect("last signal lock") = Some(SignalWithMarketRecord {
+            id,
+            market_key: "btc5m".to_string(),
+            market_window_id: record.market_window_id,
+            model_version_id: record.model_version_id,
+            signal_type: record.signal_type.clone(),
+            side: record.side.clone(),
+            confidence: record.confidence.clone(),
+            limit_price: record.limit_price.clone(),
+            suggested_size: record.suggested_size.clone(),
+            ttl_ms: record.ttl_ms,
+            reason: record.reason.clone(),
+            features: record.features.clone(),
+            input_snapshot_hash: record.input_snapshot_hash.clone(),
+            created_at: record.created_at,
+        });
+        Ok(record)
+    }
+
+    async fn signal_with_market(
+        &self,
+        _signal_id: Uuid,
+    ) -> Result<SignalWithMarketRecord, StorageError> {
+        self.maybe_fail().await?;
+        self.last_signal
+            .lock()
+            .expect("last signal lock")
+            .clone()
+            .ok_or_else(|| StorageError::InvalidInput("missing signal".to_string()))
     }
 
     async fn insert_notification_delivery(

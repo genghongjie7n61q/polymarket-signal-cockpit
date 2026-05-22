@@ -134,10 +134,14 @@ records and the HTTP sender call boundary.
 Delivery is intentionally off the realtime/model critical path:
 
 1. A model emits an actionable, frozen signal.
-2. The realtime/model path persists or hands off the signal.
-3. A bounded `NotificationRuntime` queue accepts notification work without
+2. The signal is persisted through `StorageWriter`.
+3. `StorageWriter` performs a non-blocking handoff of the inserted
+   signal-with-market record to `SignalNotificationBridge`.
+4. The bridge loads enabled Feishu channels for that market and enqueues the
+   notification job.
+5. A bounded `NotificationRuntime` queue accepts notification work without
    waiting on Feishu HTTP.
-4. The notifier worker renders the card, sends through an injectable sender,
+6. The notifier worker renders the card, sends through an injectable sender,
    retries transient failures with bounded attempts/timeouts, and writes
    `notification_deliveries` through `StorageWriterHandle`.
 

@@ -2,7 +2,10 @@ use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use polymarket_backend::{
     config::AppConfig,
-    notification::{HttpNotificationSender, NotificationRuntime, NotificationRuntimeConfig},
+    notification::{
+        HttpNotificationSender, NotificationRuntime, NotificationRuntimeConfig,
+        SignalNotificationBridge,
+    },
     realtime::{
         run_coinbase_ws_collector_until, run_polymarket_snapshot_refresher_until,
         CoinbaseCollectorConfig, MarketKey, PolymarketSnapshotRefresherConfig, RealtimeRuntime,
@@ -26,6 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let addr = SocketAddr::new(config.host.parse()?, config.port);
+    let (signal_tx, signal_rx) = tokio::sync::mpsc::channel(1024);
     let (storage_writer, market_ids, storage_repository) =
         if let Some(database_url) = config.database_url.as_deref() {
             let pool = connect_pool(database_url, PgPoolOptionsConfig::default()).await?;
@@ -33,10 +37,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let storage = PostgresStorage::new(pool);
             let market_ids = storage.load_realtime_market_ids().await?;
             let storage: Arc<dyn StorageRepository> = Arc::new(storage);
-            let (writer, join) = StorageWriter::spawn(
+            let (writer, join) = StorageWriter::spawn_with_signal_notifier(
                 storage.clone(),
                 config.storage_writer_queue_capacity,
                 Duration::from_millis(config.storage_writer_flush_interval_ms),
+                signal_tx,
             );
             (
                 Some(StorageWriterRuntime::new(writer, join)),
@@ -44,6 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(storage),
             )
         } else {
+            drop(signal_tx);
             (None, BTreeMap::<MarketKey, Uuid>::new(), None)
         };
     let realtime = Some(match storage_writer.as_ref() {
@@ -62,6 +68,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             NotificationRuntimeConfig::default(),
         )
     });
+    let _signal_notification_bridge = match (storage_repository.clone(), notification.clone()) {
+        (Some(storage), Some(notification)) => Some(SignalNotificationBridge::spawn(
+            signal_rx,
+            storage,
+            notification,
+        )),
+        _ => None,
+    };
     if let Some(runtime) = realtime.clone() {
         tokio::spawn(async move {
             loop {

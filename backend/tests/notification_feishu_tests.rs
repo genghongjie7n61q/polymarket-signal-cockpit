@@ -63,7 +63,6 @@ fn input() -> FeishuCardInput {
         channel: NotificationChannelView {
             name: "primary".to_string(),
             webhook_url_masked: "https://open.feishu.cn/.../oken".to_string(),
-            webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/secret-token".to_string(),
         },
     }
 }

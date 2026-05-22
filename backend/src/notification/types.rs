@@ -10,7 +10,6 @@ use crate::storage::{NotificationChannelRecord, SignalWithMarketRecord};
 pub struct NotificationChannelView {
     pub name: String,
     pub webhook_url_masked: String,
-    pub webhook_url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,6 +83,29 @@ pub enum NotificationError {
     SendFailed(String),
     #[error("notification send timed out")]
     Timeout,
+}
+
+impl NotificationError {
+    pub fn safe_summary(&self) -> String {
+        redact_webhook_secret(&self.to_string())
+    }
+}
+
+fn redact_webhook_secret(value: &str) -> String {
+    let marker = "/open-apis/bot/v2/hook/";
+    let Some(start) = value.find(marker) else {
+        return value.to_string();
+    };
+    let secret_start = start + marker.len();
+    let secret_end = value[secret_start..]
+        .find(|character: char| character.is_whitespace() || character == '"' || character == '\'')
+        .map(|offset| secret_start + offset)
+        .unwrap_or(value.len());
+    let mut redacted = String::with_capacity(value.len());
+    redacted.push_str(&value[..secret_start]);
+    redacted.push_str("****");
+    redacted.push_str(&value[secret_end..]);
+    redacted
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

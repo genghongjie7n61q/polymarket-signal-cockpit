@@ -382,7 +382,7 @@ async fn feishu_dry_run(
         let result = notification.send_card(&channel.webhook_url, payload).await;
         let (status, response_summary) = match result {
             Ok(outcome) => ("sent".to_string(), outcome.response_summary),
-            Err(error) => ("failed".to_string(), Some(error.to_string())),
+            Err(error) => ("failed".to_string(), Some(error.safe_summary())),
         };
         record_dry_run_attempt(
             &state,
@@ -469,7 +469,6 @@ fn dry_run_card_input(
         channel: NotificationChannelView {
             name: channel.name.clone(),
             webhook_url_masked: mask_webhook_url(&channel.webhook_url),
-            webhook_url: channel.webhook_url.clone(),
         },
     }
 }
