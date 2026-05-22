@@ -87,6 +87,20 @@ Non-positive edge, invalid prices/probabilities, or sizes below the configured m
 
 `BacktestResult` carries model key, version, dataset, trades, wins, accuracy, Wilson lower bound, coverage, max drawdown, and parameters. Replay/backtest code should use the same `ModelContext` and `StrategyModel::decide` contract as realtime execution.
 
+WEB-9 adds a replay foundation around that contract. A backtest run freezes the first actionable candidate per market window and scores only that frozen alert. Later candidates in the same window are ignored for scoring, even when they would have performed better, because production users can only act on the first alert they actually received.
+
+Backtest metrics include:
+
+- win rate and Wilson lower bound;
+- coverage over replayed windows;
+- expected value from realized binary-contract profit/loss;
+- max drawdown and max consecutive losses;
+- average price paid;
+- calibration buckets by confidence range;
+- parameters used for the market/model assignment.
+
+BTC 5m and ETH 15m keep independent assignment parameters. A model that has no recent qualifying backtest for the same market key, model key, model version, and parameter set is not eligible for production alerting. The Cockpit can query persisted runs through `GET /api/backtests?market_key=btc5m&model_key=baseline_direction`.
+
 ## Rules
 
 - Same input must produce the same output.
