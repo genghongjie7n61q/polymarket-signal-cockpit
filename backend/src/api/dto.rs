@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use crate::notification::NotificationRuntimeSnapshot;
 use crate::realtime::{
     CandleSnapshot, LiveMarketSummary, MarketTick, MarketWindowState, PolymarketSnapshot,
     RealtimeRuntimeSnapshot,
@@ -98,6 +99,7 @@ pub struct PolymarketSnapshotDto {
 pub struct RuntimeHealthDto {
     pub storage_writer: Option<StorageWriterSnapshot>,
     pub realtime: Option<RealtimeRuntimeSnapshot>,
+    pub notification: Option<NotificationRuntimeSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -137,6 +139,27 @@ pub struct NotificationChannelDto {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BacktestsResponseDto {
     pub runs: Vec<BacktestRunDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeishuDryRunResponseDto {
+    pub market_key: String,
+    pub card_summary: FeishuDryRunCardSummaryDto,
+    pub sent: Vec<FeishuDryRunDeliveryDto>,
+    pub notification: Option<NotificationRuntimeSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeishuDryRunCardSummaryDto {
+    pub title: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct FeishuDryRunDeliveryDto {
+    pub channel: NotificationChannelDto,
+    pub status: String,
+    pub response_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

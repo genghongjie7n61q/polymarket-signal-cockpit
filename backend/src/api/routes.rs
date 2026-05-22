@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use serde::Deserialize;
@@ -9,15 +9,20 @@ use time::OffsetDateTime;
 
 use crate::{
     api::dto::{
-        BacktestRunDto, BacktestsResponseDto, CandleDto, CandlesResponseDto, MarketStateDto,
-        MarketSummaryDto, MarketTickDto, MarketsResponseDto, ModelAssignmentDto,
+        BacktestRunDto, BacktestsResponseDto, CandleDto, CandlesResponseDto,
+        FeishuDryRunCardSummaryDto, FeishuDryRunDeliveryDto, FeishuDryRunResponseDto,
+        MarketStateDto, MarketSummaryDto, MarketTickDto, MarketsResponseDto, ModelAssignmentDto,
         ModelAssignmentsResponseDto, NotificationChannelDto, NotificationChannelsResponseDto,
         PolymarketSnapshotDto, RuntimeHealthDto, SignalDto, SignalsResponseDto,
     },
     api::ws::markets_ws,
+    notification::{render_feishu_card, FeishuCardInput, NotificationChannelView},
     realtime::{LiveMarketState, MarketKey},
     router::AppState,
-    storage::{NewModelAssignment, NewNotificationChannel},
+    storage::{
+        NewModelAssignment, NewNotificationChannel, NewRuntimeEvent, NotificationChannelRecord,
+        StorageCommand,
+    },
 };
 
 pub fn api_router() -> Router<AppState> {
@@ -27,6 +32,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/markets/{market_key}/candles", get(market_candles))
         .route("/signals", get(latest_signals))
         .route("/backtests", get(latest_backtests))
+        .route("/notifications/feishu/dry-run", post(feishu_dry_run))
         .route("/ws/markets", get(markets_ws))
         .route("/config/model-assignments", get(list_model_assignments))
         .route(
@@ -78,6 +84,12 @@ struct UpsertNotificationChannelRequest {
     name: String,
     webhook_url: String,
     enabled: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct FeishuDryRunRequest {
+    market_key: String,
+    channel_name: Option<String>,
 }
 
 async fn list_markets(State(state): State<AppState>) -> Json<MarketsResponseDto> {
@@ -149,6 +161,10 @@ async fn runtime_health(State(state): State<AppState>) -> Json<RuntimeHealthDto>
             .realtime
             .as_ref()
             .map(|runtime| runtime.snapshot(OffsetDateTime::now_utc())),
+        notification: state
+            .notification
+            .as_ref()
+            .map(|runtime| runtime.snapshot()),
     })
 }
 
@@ -325,6 +341,71 @@ async fn upsert_notification_channel(
     Ok(Json(NotificationChannelDto::from_record(channel)))
 }
 
+async fn feishu_dry_run(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<FeishuDryRunRequest>,
+) -> Result<Json<FeishuDryRunResponseDto>, StatusCode> {
+    require_admin_token(&state, &headers)?;
+    let market_key = supported_market(&state, &request.market_key)?;
+    let storage = state
+        .storage
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let notification = state
+        .notification
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let channel_name = request
+        .channel_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let channels = storage
+        .list_notification_channels(market_key.as_str())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .into_iter()
+        .filter(|channel| channel.enabled && channel.channel_type == "feishu")
+        .filter(|channel| channel_name.is_none_or(|name| channel.name == name))
+        .collect::<Vec<_>>();
+    if channels.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let title = format!("Polymarket {} Dry Run", market_label(market_key));
+    let reason = "Dry-run notification probe; no signal or order was created.".to_string();
+    let mut sent = Vec::with_capacity(channels.len());
+    for channel in channels {
+        let payload = render_feishu_card(&dry_run_card_input(market_key, &channel, &reason));
+        let result = notification.send_card(&channel.webhook_url, payload).await;
+        let (status, response_summary) = match result {
+            Ok(outcome) => ("sent".to_string(), outcome.response_summary),
+            Err(error) => ("failed".to_string(), Some(error.safe_summary())),
+        };
+        record_dry_run_attempt(
+            &state,
+            market_key,
+            &channel,
+            &status,
+            response_summary.as_deref(),
+        );
+        sent.push(FeishuDryRunDeliveryDto {
+            channel: NotificationChannelDto::from_record(channel),
+            status,
+            response_summary,
+        });
+    }
+
+    Ok(Json(FeishuDryRunResponseDto {
+        market_key: market_key.as_str().to_string(),
+        card_summary: FeishuDryRunCardSummaryDto { title, reason },
+        sent,
+        notification: Some(notification.snapshot()),
+    }))
+}
+
 fn market_summary(
     market_key: MarketKey,
     live: Option<&LiveMarketState>,
@@ -358,6 +439,77 @@ fn market_state_dto(market_key: MarketKey, live: Option<&LiveMarketState>) -> Ma
         recent_candles: live
             .map(|market| market.candles.clone())
             .unwrap_or_default(),
+    }
+}
+
+fn dry_run_card_input(
+    market_key: MarketKey,
+    channel: &NotificationChannelRecord,
+    reason: &str,
+) -> FeishuCardInput {
+    let now = OffsetDateTime::now_utc();
+    FeishuCardInput {
+        market_key: market_key.as_str().to_string(),
+        market_label: market_label(market_key),
+        window_start: now,
+        window_end: now,
+        side: "DRY RUN".to_string(),
+        confidence: "n/a".to_string(),
+        limit_price: "n/a".to_string(),
+        suggested_size: "n/a".to_string(),
+        ttl_ms: 0,
+        model_key: "notification-dry-run".to_string(),
+        model_version: "manual".to_string(),
+        reason: reason.to_string(),
+        features: serde_json::json!({
+            "dry_run": true,
+            "orders_created": false,
+            "signals_created": false
+        }),
+        channel: NotificationChannelView {
+            name: channel.name.clone(),
+            webhook_url_masked: mask_webhook_url(&channel.webhook_url),
+        },
+    }
+}
+
+fn record_dry_run_attempt(
+    state: &AppState,
+    market_key: MarketKey,
+    channel: &NotificationChannelRecord,
+    status: &str,
+    response_summary: Option<&str>,
+) {
+    let Some(writer) = state.storage_writer.as_ref() else {
+        return;
+    };
+
+    if writer
+        .handle()
+        .try_enqueue(StorageCommand::RuntimeEvent(NewRuntimeEvent {
+            component: "notification".to_string(),
+            severity: if status == "sent" { "info" } else { "warn" }.to_string(),
+            event_type: "feishu_dry_run".to_string(),
+            message: format!(
+                "Feishu dry-run {status} for {} channel {}",
+                market_key.as_str(),
+                channel.name
+            ),
+            details: serde_json::json!({
+                "market_key": market_key.as_str(),
+                "channel_id": channel.id,
+                "channel_name": channel.name,
+                "channel_type": channel.channel_type,
+                "webhook_url_masked": mask_webhook_url(&channel.webhook_url),
+                "status": status,
+                "response_summary": response_summary,
+                "signals_created": false,
+                "orders_created": false
+            }),
+        }))
+        .is_err()
+    {
+        tracing::warn!("failed to enqueue feishu dry-run runtime event");
     }
 }
 
@@ -404,6 +556,30 @@ fn require_admin_token(state: &AppState, headers: &HeaderMap) -> Result<(), Stat
         Ok(())
     } else {
         Err(StatusCode::UNAUTHORIZED)
+    }
+}
+
+fn market_label(market_key: MarketKey) -> String {
+    match market_key {
+        MarketKey::Btc5m => "BTC 5m".to_string(),
+        MarketKey::Eth15m => "ETH 15m".to_string(),
+    }
+}
+
+fn mask_webhook_url(webhook_url: &str) -> String {
+    let suffix = webhook_url
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    if let Some((scheme, rest)) = webhook_url.split_once("://") {
+        let host = rest.split('/').next().unwrap_or("webhook");
+        format!("{scheme}://{host}/.../{suffix}")
+    } else {
+        format!(".../{suffix}")
     }
 }
 

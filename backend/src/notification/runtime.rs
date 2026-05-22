@@ -1,0 +1,465 @@
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, RwLock},
+    time::Duration,
+};
+
+use async_trait::async_trait;
+use serde_json::Value;
+use tokio::{sync::mpsc, task::JoinHandle, time};
+
+use crate::{
+    notification::types::DeliveryAudit,
+    notification::{
+        render_feishu_card, FeishuCardInput, NotificationChannelView, NotificationError,
+        NotificationJob, NotificationRuntimeConfig, NotificationRuntimeSnapshot,
+        NotificationSendOutcome,
+    },
+    storage::{
+        NewNotificationDelivery, NotificationChannelRecord, StorageCommand, StorageWriterHandle,
+    },
+};
+
+#[async_trait]
+pub trait NotificationSender: Send + Sync {
+    async fn send(
+        &self,
+        webhook_url: &str,
+        payload: Value,
+    ) -> Result<NotificationSendOutcome, NotificationError>;
+}
+
+#[derive(Clone)]
+pub struct NotificationRuntime {
+    tx: mpsc::Sender<NotificationJob>,
+    metrics: Arc<RwLock<NotificationRuntimeSnapshot>>,
+    sender: Arc<dyn NotificationSender>,
+    config: NotificationRuntimeConfig,
+    capacity: usize,
+    _task: Option<Arc<JoinHandle<()>>>,
+    _rx_guard: Option<Arc<Mutex<mpsc::Receiver<NotificationJob>>>>,
+}
+
+#[derive(Clone)]
+pub struct HttpNotificationSender {
+    client: reqwest::Client,
+}
+
+impl HttpNotificationSender {
+    pub fn new() -> Self {
+        Self {
+            client: reqwest::Client::new(),
+        }
+    }
+}
+
+impl Default for HttpNotificationSender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl NotificationSender for HttpNotificationSender {
+    async fn send(
+        &self,
+        webhook_url: &str,
+        payload: Value,
+    ) -> Result<NotificationSendOutcome, NotificationError> {
+        let response = self
+            .client
+            .post(webhook_url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|_| NotificationError::SendFailed("request failed".to_string()))?;
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        if !status.is_success() {
+            return Err(NotificationError::SendFailed(format!(
+                "http status {status}"
+            )));
+        }
+
+        Ok(NotificationSendOutcome {
+            response_summary: Some(trim_summary(format!("http status {status}: {body}"))),
+        })
+    }
+}
+
+impl NotificationRuntime {
+    pub fn spawn<S>(
+        sender: Arc<S>,
+        storage_writer: StorageWriterHandle,
+        capacity: usize,
+        config: NotificationRuntimeConfig,
+    ) -> Self
+    where
+        S: NotificationSender + 'static,
+    {
+        let sender: Arc<dyn NotificationSender> = sender;
+        let (tx, mut rx) = mpsc::channel::<NotificationJob>(capacity);
+        let metrics = Arc::new(RwLock::new(NotificationRuntimeSnapshot::default()));
+        let dedupe = Arc::new(Mutex::new(HashSet::<String>::new()));
+        let worker_metrics = metrics.clone();
+        let worker_dedupe = dedupe.clone();
+        let worker_config = config.clone();
+        let worker_sender = sender.clone();
+        let task = tokio::spawn(async move {
+            while let Some(job) = rx.recv().await {
+                process_job(
+                    job,
+                    worker_sender.as_ref(),
+                    &storage_writer,
+                    &worker_config,
+                    &worker_metrics,
+                    &worker_dedupe,
+                )
+                .await;
+            }
+        });
+
+        Self {
+            tx,
+            metrics,
+            sender,
+            config,
+            capacity,
+            _task: Some(Arc::new(task)),
+            _rx_guard: None,
+        }
+    }
+
+    pub fn spawn_paused_for_tests<S>(
+        sender: Arc<S>,
+        _storage_writer: StorageWriterHandle,
+        capacity: usize,
+        config: NotificationRuntimeConfig,
+    ) -> Self
+    where
+        S: NotificationSender + 'static,
+    {
+        let (tx, rx) = mpsc::channel::<NotificationJob>(capacity);
+        let sender: Arc<dyn NotificationSender> = sender;
+        Self {
+            tx,
+            metrics: Arc::new(RwLock::new(NotificationRuntimeSnapshot::default())),
+            sender,
+            config,
+            capacity,
+            _task: None,
+            _rx_guard: Some(Arc::new(Mutex::new(rx))),
+        }
+    }
+
+    pub fn try_enqueue(&self, job: NotificationJob) -> Result<(), NotificationError> {
+        match self.tx.try_send(job) {
+            Ok(()) => {
+                self.update_metrics(|metrics| metrics.accepted += 1);
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.update_metrics(|metrics| metrics.dropped += 1);
+                Err(NotificationError::QueueFull)
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => Err(NotificationError::QueueClosed),
+        }
+    }
+
+    pub fn snapshot(&self) -> NotificationRuntimeSnapshot {
+        let mut snapshot = self
+            .metrics
+            .read()
+            .expect("notification metrics lock poisoned")
+            .clone();
+        snapshot.queued_capacity = self.capacity;
+        snapshot.queued_available = self.tx.capacity();
+        snapshot.task_status = if self.tx.is_closed() {
+            "stopped".to_string()
+        } else {
+            "running".to_string()
+        };
+        snapshot
+    }
+
+    pub async fn send_card(
+        &self,
+        webhook_url: &str,
+        payload: Value,
+    ) -> Result<NotificationSendOutcome, NotificationError> {
+        let max_attempts = self.config.max_attempts.max(1);
+        let mut attempt = 1_u8;
+        loop {
+            let result = time::timeout(
+                Duration::from_millis(self.config.send_timeout_ms.max(1)),
+                self.sender.send(webhook_url, payload.clone()),
+            )
+            .await
+            .map_err(|_| NotificationError::Timeout)
+            .and_then(|result| result);
+
+            match result {
+                Ok(outcome) => {
+                    self.update_metrics(|metrics| metrics.sent += 1);
+                    return Ok(outcome);
+                }
+                Err(error) => {
+                    if attempt >= max_attempts {
+                        self.update_metrics(|metrics| metrics.failed += 1);
+                        return Err(error);
+                    }
+                    self.update_metrics(|metrics| metrics.retried += 1);
+                    attempt += 1;
+                    time::sleep(Duration::from_millis(
+                        self.config.retry_base_delay_ms.max(1) * u64::from(attempt),
+                    ))
+                    .await;
+                }
+            }
+        }
+    }
+
+    fn update_metrics(&self, update: impl FnOnce(&mut NotificationRuntimeSnapshot)) {
+        let mut metrics = self
+            .metrics
+            .write()
+            .expect("notification metrics lock poisoned");
+        update(&mut metrics);
+    }
+}
+
+async fn process_job(
+    job: NotificationJob,
+    sender: &dyn NotificationSender,
+    storage_writer: &StorageWriterHandle,
+    config: &NotificationRuntimeConfig,
+    metrics: &Arc<RwLock<NotificationRuntimeSnapshot>>,
+    dedupe: &Arc<Mutex<HashSet<String>>>,
+) {
+    update_metrics(metrics, |metrics| metrics.processed += 1);
+    for channel in job.channels.iter().filter(|channel| {
+        channel.enabled
+            && channel.channel_type == "feishu"
+            && channel.market_key == job.signal.market_key
+    }) {
+        let dedupe_key = dedupe_key(&job, channel);
+        if !mark_dedupe(dedupe, &dedupe_key) {
+            update_metrics(metrics, |metrics| metrics.deduped += 1);
+            continue;
+        }
+
+        let input = card_input(&job, channel);
+        let payload = render_feishu_card(&input);
+        let (audit, sent) =
+            send_with_retry(sender, channel, payload, &dedupe_key, &job, config, metrics).await;
+        if sent {
+            update_metrics(metrics, |metrics| metrics.sent += 1);
+        } else {
+            update_metrics(metrics, |metrics| metrics.failed += 1);
+        }
+        if storage_writer
+            .try_enqueue(StorageCommand::NotificationDelivery(
+                NewNotificationDelivery {
+                    signal_id: audit.signal_id,
+                    channel_id: audit.channel_id,
+                    dedupe_key: audit.dedupe_key,
+                    status: audit.status,
+                    attempt_count: audit.attempt_count,
+                    response_summary: audit.response_summary,
+                },
+            ))
+            .is_err()
+        {
+            update_metrics(metrics, |metrics| metrics.audit_dropped += 1);
+        }
+    }
+}
+
+async fn send_with_retry(
+    sender: &dyn NotificationSender,
+    channel: &NotificationChannelRecord,
+    payload: Value,
+    dedupe_key: &str,
+    job: &NotificationJob,
+    config: &NotificationRuntimeConfig,
+    metrics: &Arc<RwLock<NotificationRuntimeSnapshot>>,
+) -> (DeliveryAudit, bool) {
+    let max_attempts = config.max_attempts.max(1);
+    let mut attempt = 1_u8;
+    loop {
+        let result = time::timeout(
+            Duration::from_millis(config.send_timeout_ms.max(1)),
+            sender.send(&channel.webhook_url, payload.clone()),
+        )
+        .await
+        .map_err(|_| NotificationError::Timeout)
+        .and_then(|result| result);
+
+        match result {
+            Ok(outcome) => {
+                return (
+                    DeliveryAudit {
+                        signal_id: job.signal.id,
+                        channel_id: channel.id,
+                        dedupe_key: dedupe_key.to_string(),
+                        status: "sent".to_string(),
+                        attempt_count: i32::from(attempt),
+                        response_summary: outcome.response_summary,
+                    },
+                    true,
+                );
+            }
+            Err(error) => {
+                let error_summary = error.safe_summary();
+                if attempt >= max_attempts {
+                    return (
+                        DeliveryAudit {
+                            signal_id: job.signal.id,
+                            channel_id: channel.id,
+                            dedupe_key: dedupe_key.to_string(),
+                            status: "failed".to_string(),
+                            attempt_count: i32::from(attempt),
+                            response_summary: Some(error_summary),
+                        },
+                        false,
+                    );
+                }
+                update_metrics(metrics, |metrics| metrics.retried += 1);
+                attempt += 1;
+                time::sleep(Duration::from_millis(
+                    config.retry_base_delay_ms.max(1) * u64::from(attempt),
+                ))
+                .await;
+            }
+        }
+    }
+}
+
+fn mark_dedupe(dedupe: &Arc<Mutex<HashSet<String>>>, dedupe_key: &str) -> bool {
+    dedupe
+        .lock()
+        .expect("notification dedupe lock poisoned")
+        .insert(dedupe_key.to_string())
+}
+
+fn update_metrics(
+    metrics: &Arc<RwLock<NotificationRuntimeSnapshot>>,
+    update: impl FnOnce(&mut NotificationRuntimeSnapshot),
+) {
+    let mut metrics = metrics.write().expect("notification metrics lock poisoned");
+    update(&mut metrics);
+}
+
+fn dedupe_key(job: &NotificationJob, channel: &NotificationChannelRecord) -> String {
+    format!(
+        "{}:{}:{}:{}:{}",
+        job.signal.market_window_id,
+        job.signal.model_version_id,
+        job.signal
+            .side
+            .as_deref()
+            .unwrap_or("none")
+            .to_ascii_lowercase(),
+        job.signal.signal_type,
+        channel.id
+    )
+}
+
+fn card_input(job: &NotificationJob, channel: &NotificationChannelRecord) -> FeishuCardInput {
+    let (window_start, window_end, model_key, model_version) = match job.metadata.as_ref() {
+        Some(metadata) => (
+            metadata.window_start,
+            metadata.window_end,
+            metadata.model_key.clone(),
+            metadata.model_version.clone(),
+        ),
+        None => (
+            job.signal.created_at,
+            job.signal.created_at + market_duration(&job.signal.market_key),
+            "model_version_id".to_string(),
+            job.signal.model_version_id.to_string(),
+        ),
+    };
+
+    FeishuCardInput {
+        market_key: job.signal.market_key.clone(),
+        market_label: market_label(&job.signal.market_key),
+        window_start,
+        window_end,
+        side: job
+            .signal
+            .side
+            .clone()
+            .unwrap_or_else(|| "UNKNOWN".to_string())
+            .to_ascii_uppercase(),
+        confidence: job
+            .signal
+            .confidence
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "n/a".to_string()),
+        limit_price: job
+            .signal
+            .limit_price
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "n/a".to_string()),
+        suggested_size: job
+            .signal
+            .suggested_size
+            .as_ref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "n/a".to_string()),
+        ttl_ms: job.signal.ttl_ms.unwrap_or(0),
+        model_key,
+        model_version,
+        reason: job.signal.reason.clone(),
+        features: job.signal.features.clone(),
+        channel: NotificationChannelView {
+            name: channel.name.clone(),
+            webhook_url_masked: mask_webhook_url(&channel.webhook_url),
+        },
+    }
+}
+
+fn market_duration(market_key: &str) -> ::time::Duration {
+    match market_key {
+        "btc5m" => ::time::Duration::minutes(5),
+        "eth15m" => ::time::Duration::minutes(15),
+        _ => ::time::Duration::ZERO,
+    }
+}
+
+fn market_label(market_key: &str) -> String {
+    match market_key {
+        "btc5m" => "BTC 5m".to_string(),
+        "eth15m" => "ETH 15m".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn mask_webhook_url(webhook_url: &str) -> String {
+    let suffix = webhook_url
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<String>();
+    if let Some((scheme, rest)) = webhook_url.split_once("://") {
+        let host = rest.split('/').next().unwrap_or("webhook");
+        format!("{scheme}://{host}/.../{suffix}")
+    } else {
+        format!(".../{suffix}")
+    }
+}
+
+fn trim_summary(summary: String) -> String {
+    const MAX_SUMMARY_CHARS: usize = 240;
+    if summary.chars().count() <= MAX_SUMMARY_CHARS {
+        summary
+    } else {
+        summary.chars().take(MAX_SUMMARY_CHARS).collect()
+    }
+}

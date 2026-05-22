@@ -3,7 +3,10 @@ use serde::Serialize;
 
 use time::OffsetDateTime;
 
-use crate::{realtime::RealtimeRuntimeSnapshot, router::AppState, storage::StorageWriterSnapshot};
+use crate::{
+    notification::NotificationRuntimeSnapshot, realtime::RealtimeRuntimeSnapshot, router::AppState,
+    storage::StorageWriterSnapshot,
+};
 
 const SERVICE_NAME: &str = "polymarket-backend";
 
@@ -18,6 +21,7 @@ pub struct HealthResponse {
     supported_markets: Vec<String>,
     storage_writer: Option<StorageWriterSnapshot>,
     realtime: Option<RealtimeRuntimeSnapshot>,
+    notification: Option<NotificationRuntimeSnapshot>,
     runtime: RuntimeInfo,
 }
 
@@ -52,6 +56,10 @@ impl HealthResponse {
             .realtime
             .as_ref()
             .map(|runtime| runtime.snapshot(OffsetDateTime::now_utc()));
+        let notification = state
+            .notification
+            .as_ref()
+            .map(|runtime| runtime.snapshot());
 
         Self {
             status: "ok",
@@ -63,6 +71,7 @@ impl HealthResponse {
             supported_markets: supported_markets.clone(),
             storage_writer,
             realtime,
+            notification,
             runtime: RuntimeInfo {
                 environment,
                 database_configured,

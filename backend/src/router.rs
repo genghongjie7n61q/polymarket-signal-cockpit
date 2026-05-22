@@ -6,6 +6,7 @@ use crate::{
     api::api_router,
     config::AppConfig,
     health::healthz,
+    notification::NotificationRuntime,
     realtime::RealtimeRuntime,
     storage::{StorageRepository, StorageWriterRuntime},
 };
@@ -15,6 +16,7 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     pub storage_writer: Option<StorageWriterRuntime>,
     pub realtime: Option<RealtimeRuntime>,
+    pub notification: Option<NotificationRuntime>,
     pub storage: Option<Arc<dyn StorageRepository>>,
 }
 
@@ -43,6 +45,22 @@ pub fn build_router_with_runtime_and_storage(
     realtime: Option<RealtimeRuntime>,
     storage: Option<Arc<dyn StorageRepository>>,
 ) -> Router {
+    build_router_with_runtime_storage_and_notification(
+        config,
+        storage_writer,
+        realtime,
+        storage,
+        None,
+    )
+}
+
+pub fn build_router_with_runtime_storage_and_notification(
+    config: AppConfig,
+    storage_writer: Option<StorageWriterRuntime>,
+    realtime: Option<RealtimeRuntime>,
+    storage: Option<Arc<dyn StorageRepository>>,
+    notification: Option<NotificationRuntime>,
+) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
         .nest("/api", api_router())
@@ -50,6 +68,7 @@ pub fn build_router_with_runtime_and_storage(
             config: Arc::new(config),
             storage_writer,
             realtime,
+            notification,
             storage,
         })
 }

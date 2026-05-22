@@ -21,6 +21,21 @@ pub trait StorageRepository: Send + Sync {
     ) -> Result<RawMarketEventRecord, StorageError>;
     async fn insert_tick(&self, tick: &NewTick) -> Result<TickRecord, StorageError>;
     async fn insert_signal(&self, signal: &NewSignal) -> Result<SignalRecord, StorageError>;
+    async fn signal_with_market(
+        &self,
+        signal_id: Uuid,
+    ) -> Result<SignalWithMarketRecord, StorageError> {
+        Err(StorageError::InvalidInput(format!(
+            "signal_with_market is not implemented for {signal_id}"
+        )))
+    }
+    async fn signal_notification_metadata(
+        &self,
+        signal_id: Uuid,
+    ) -> Result<Option<crate::storage::SignalNotificationMetadata>, StorageError> {
+        let _ = signal_id;
+        Ok(None)
+    }
     async fn insert_notification_delivery(
         &self,
         delivery: &NewNotificationDelivery,
@@ -395,6 +410,65 @@ impl StorageRepository for PostgresStorage {
         .await?;
 
         Ok(signals)
+    }
+
+    async fn signal_with_market(
+        &self,
+        signal_id: Uuid,
+    ) -> Result<SignalWithMarketRecord, StorageError> {
+        let signal = sqlx::query_as::<_, SignalWithMarketRecord>(
+            r#"
+            SELECT
+                s.id,
+                m.market_key,
+                s.market_window_id,
+                s.model_version_id,
+                s.signal_type,
+                s.side,
+                s.confidence,
+                s.limit_price,
+                s.suggested_size,
+                s.ttl_ms,
+                s.reason,
+                s.features,
+                s.input_snapshot_hash,
+                s.created_at
+            FROM signals s
+            JOIN market_windows mw ON mw.id = s.market_window_id
+            JOIN markets m ON m.id = mw.market_id
+            WHERE s.id = $1
+            "#,
+        )
+        .bind(signal_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(signal)
+    }
+
+    async fn signal_notification_metadata(
+        &self,
+        signal_id: Uuid,
+    ) -> Result<Option<crate::storage::SignalNotificationMetadata>, StorageError> {
+        let metadata = sqlx::query_as::<_, crate::storage::SignalNotificationMetadata>(
+            r#"
+            SELECT
+                mw.start_ts AS window_start,
+                mw.end_ts AS window_end,
+                mo.model_key,
+                mv.version AS model_version
+            FROM signals s
+            JOIN market_windows mw ON mw.id = s.market_window_id
+            JOIN model_versions mv ON mv.id = s.model_version_id
+            JOIN models mo ON mo.id = mv.model_id
+            WHERE s.id = $1
+            "#,
+        )
+        .bind(signal_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(metadata)
     }
 
     async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError> {

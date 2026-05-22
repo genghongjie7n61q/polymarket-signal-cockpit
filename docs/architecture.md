@@ -126,7 +126,31 @@ Initial cockpit views:
 
 ## Feishu Notifications
 
-Each market can have multiple webhook channels. Delivery must be asynchronous and deduplicated by:
+Each market can have multiple webhook channels. The backend stores webhook
+configuration in `notification_channels`, but API responses and card payloads
+must expose only masked webhook values. Raw webhook URLs stay inside storage
+records and the HTTP sender call boundary.
+
+Delivery is intentionally off the realtime/model critical path:
+
+1. A model emits an actionable, frozen signal.
+2. The signal is persisted through `StorageWriter`.
+3. `StorageWriter` performs a non-blocking handoff of the inserted
+   signal-with-market record to `SignalNotificationBridge`.
+4. The bridge loads enabled Feishu channels for that market and enqueues the
+   notification job.
+5. A bounded `NotificationRuntime` queue accepts notification work without
+   waiting on Feishu HTTP.
+6. The notifier worker renders the card, sends through an injectable sender,
+   retries transient failures with bounded attempts/timeouts, and writes
+   `notification_deliveries` through `StorageWriterHandle`.
+
+The queue exposes `accepted`, `dropped`, `processed`, `sent`, `failed`,
+`retried`, `deduped`, `queued_capacity`, and `queued_available` through runtime
+health. Queue-full behavior must drop/return quickly so notification pressure is
+visible but cannot stall tick processing or model evaluation.
+
+Delivery must be asynchronous and deduplicated by:
 
 ```text
 market_window_id + model_version_id + side + alert_type
@@ -140,6 +164,19 @@ Notification payload should prioritize:
 4. Market/window.
 5. TTL.
 6. Model and backtest details.
+
+The operational dry-run endpoint is:
+
+```text
+POST /api/notifications/feishu/dry-run
+Authorization: Bearer <ADMIN_API_TOKEN>
+```
+
+It validates the market, loads enabled Feishu channels, renders and sends a
+clear test card, returns masked channel details, and records the attempt as a
+`runtime_events` entry. It does not create a signal, paper order, or
+`notification_deliveries` row because those rows are tied to real persisted
+signals.
 
 ## Risk Points
 

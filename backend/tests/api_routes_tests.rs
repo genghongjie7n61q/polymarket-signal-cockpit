@@ -4,6 +4,10 @@ use axum::{
 };
 use polymarket_backend::{
     config::AppConfig,
+    notification::{
+        NotificationError, NotificationRuntime, NotificationRuntimeConfig, NotificationSendOutcome,
+        NotificationSender,
+    },
     realtime::{
         MarketKey, MarketTick, RealtimeBus, RealtimeEvent, RealtimeRuntime, RealtimeStateOwner,
     },
@@ -422,6 +426,105 @@ async fn notification_channels_api_upserts_feishu_channel() {
 }
 
 #[tokio::test]
+async fn feishu_dry_run_api_requires_admin_token() {
+    let repository = ApiRepository::default();
+    repository
+        .channels
+        .lock()
+        .expect("channels lock")
+        .push(notification_channel("btc5m", "primary", true));
+    let app = build_test_app_with_repository(repository).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/notifications/feishu/dry-run")
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({"market_key": "btc5m"}).to_string()))
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn feishu_dry_run_api_sends_enabled_channels_and_masks_webhooks() {
+    let repository = ApiRepository::default();
+    repository.channels.lock().expect("channels lock").extend([
+        notification_channel("btc5m", "primary", true),
+        notification_channel("btc5m", "disabled", false),
+        notification_channel("eth15m", "other-market", true),
+    ]);
+    let sender = Arc::new(ApiFakeSender::default());
+    let app = build_test_app_with_repository_and_notification(repository, sender.clone()).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/notifications/feishu/dry-run")
+                .header(CONTENT_TYPE, "application/json")
+                .header("authorization", "Bearer test-admin-token")
+                .body(Body::from(json!({"market_key": "btc5m"}).to_string()))
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["market_key"], "btc5m");
+    assert_eq!(json["sent"].as_array().expect("sent").len(), 1);
+    assert_eq!(json["sent"][0]["channel"]["name"], "primary");
+    assert_eq!(json["sent"][0]["channel"]["webhook_url"], Value::Null);
+    assert_eq!(
+        json["sent"][0]["channel"]["webhook_url_masked"],
+        "https://open.feishu.cn/.../abcd"
+    );
+    assert_eq!(json["sent"][0]["status"], "sent");
+    assert_eq!(json["sent"][0]["response_summary"], "ok");
+    assert_eq!(json["card_summary"]["title"], "Polymarket BTC 5m Dry Run");
+    assert!(!json.to_string().contains("open-apis/bot/v2/hook/abcd"));
+    assert_eq!(sender.requests().len(), 1);
+}
+
+#[tokio::test]
+async fn runtime_health_api_returns_notification_runtime_snapshot() {
+    let repository = ApiRepository::default();
+    let sender = Arc::new(ApiFakeSender::default());
+    let app = build_test_app_with_repository_and_notification(repository, sender).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/runtime/health")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["notification"]["accepted"], 0);
+    assert_eq!(json["notification"]["sent"], 0);
+    assert_eq!(json["notification"]["failed"], 0);
+}
+
+#[tokio::test]
 async fn backtests_api_returns_latest_runs_for_market_and_model() {
     let app = build_test_app_with_repository(ApiRepository {
         backtest_runs: vec![backtest_run("btc5m", "baseline_direction", "0.1.0")],
@@ -494,6 +597,46 @@ async fn build_test_app_with_repository(repository: ApiRepository) -> axum::Rout
     build_router_with_runtime_and_storage(config, None, None, Some(Arc::new(repository)))
 }
 
+async fn build_test_app_with_repository_and_notification(
+    repository: ApiRepository,
+    sender: Arc<ApiFakeSender>,
+) -> axum::Router {
+    let config = AppConfig::from_env_map([
+        ("POLY_ENV".to_string(), "local".to_string()),
+        ("APP_VERSION".to_string(), "test-version".to_string()),
+        ("SUPPORTED_MARKETS".to_string(), "btc5m,eth15m".to_string()),
+        (
+            "ADMIN_API_TOKEN".to_string(),
+            "test-admin-token".to_string(),
+        ),
+    ])
+    .expect("test config should be valid");
+    let (writer, writer_task) = polymarket_backend::storage::StorageWriter::spawn(
+        Arc::new(repository.clone()),
+        8,
+        Duration::from_millis(5),
+    );
+    let notification = NotificationRuntime::spawn_paused_for_tests(
+        sender,
+        writer,
+        8,
+        NotificationRuntimeConfig {
+            max_attempts: 1,
+            send_timeout_ms: 200,
+            retry_base_delay_ms: 1,
+        },
+    );
+    writer_task.abort();
+
+    polymarket_backend::router::build_router_with_runtime_storage_and_notification(
+        config,
+        None,
+        None,
+        Some(Arc::new(repository)),
+        Some(notification),
+    )
+}
+
 #[derive(Clone, Default)]
 struct ApiRepository {
     candles: Vec<CandleRecord>,
@@ -501,6 +644,31 @@ struct ApiRepository {
     backtest_runs: Vec<BacktestRunRecord>,
     assignments: Arc<Mutex<Vec<ModelAssignmentRecord>>>,
     channels: Arc<Mutex<Vec<NotificationChannelRecord>>>,
+}
+
+#[derive(Default)]
+struct ApiFakeSender {
+    requests: Mutex<Vec<Value>>,
+}
+
+impl ApiFakeSender {
+    fn requests(&self) -> Vec<Value> {
+        self.requests.lock().expect("requests lock").clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl NotificationSender for ApiFakeSender {
+    async fn send(
+        &self,
+        _webhook_url: &str,
+        payload: Value,
+    ) -> Result<NotificationSendOutcome, NotificationError> {
+        self.requests.lock().expect("requests lock").push(payload);
+        Ok(NotificationSendOutcome {
+            response_summary: Some("ok".to_string()),
+        })
+    }
 }
 
 #[async_trait::async_trait]

@@ -2,8 +2,15 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use polymarket_backend::{
     config::AppConfig,
+    notification::{
+        NotificationError, NotificationRuntime, NotificationRuntimeConfig, NotificationSendOutcome,
+        NotificationSender,
+    },
     realtime::{MarketTick, RealtimeBus, RealtimeEvent, RealtimeRuntime, RealtimeStateOwner},
-    router::{build_router, build_router_with_runtime, build_router_with_storage},
+    router::{
+        build_router, build_router_with_runtime,
+        build_router_with_runtime_storage_and_notification, build_router_with_storage,
+    },
     storage::{
         BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
         NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
@@ -13,7 +20,10 @@ use polymarket_backend::{
     },
 };
 use serde_json::{json, Value};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use time::OffsetDateTime;
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -59,6 +69,7 @@ async fn healthz_returns_structured_service_status() {
             "supported_markets": ["btc5m", "eth15m"],
             "storage_writer": null,
             "realtime": null,
+            "notification": null,
             "runtime": {
                 "environment": "local",
                 "database_configured": false,
@@ -66,6 +77,60 @@ async fn healthz_returns_structured_service_status() {
             }
         })
     );
+}
+
+#[tokio::test]
+async fn healthz_exposes_notification_runtime_metrics_when_configured() {
+    let config = AppConfig::from_env_map([
+        ("POLY_ENV".to_string(), "local".to_string()),
+        ("APP_VERSION".to_string(), "test-version".to_string()),
+        (
+            "ADMIN_API_TOKEN".to_string(),
+            "test-admin-token".to_string(),
+        ),
+    ])
+    .expect("test config should be valid");
+    let (writer, join) =
+        StorageWriter::spawn(Arc::new(HealthRepository), 4, Duration::from_millis(5));
+    let notification = NotificationRuntime::spawn_paused_for_tests(
+        Arc::new(HealthFakeSender::default()),
+        writer,
+        4,
+        NotificationRuntimeConfig {
+            max_attempts: 1,
+            send_timeout_ms: 200,
+            retry_base_delay_ms: 1,
+        },
+    );
+    join.abort();
+    let app = build_router_with_runtime_storage_and_notification(
+        config,
+        None,
+        None,
+        None,
+        Some(notification),
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/healthz")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("health request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["notification"]["accepted"], 0);
+    assert_eq!(json["notification"]["sent"], 0);
+    assert_eq!(json["notification"]["task_status"], "running");
 }
 
 #[tokio::test]
@@ -171,6 +236,25 @@ async fn healthz_exposes_realtime_runtime_metrics_when_configured() {
 }
 
 struct HealthRepository;
+
+#[derive(Default)]
+struct HealthFakeSender {
+    requests: Mutex<Vec<Value>>,
+}
+
+#[async_trait::async_trait]
+impl NotificationSender for HealthFakeSender {
+    async fn send(
+        &self,
+        _webhook_url: &str,
+        payload: Value,
+    ) -> Result<NotificationSendOutcome, NotificationError> {
+        self.requests.lock().expect("requests lock").push(payload);
+        Ok(NotificationSendOutcome {
+            response_summary: Some("ok".to_string()),
+        })
+    }
+}
 
 #[async_trait::async_trait]
 impl StorageRepository for HealthRepository {
