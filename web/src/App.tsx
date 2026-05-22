@@ -1,3 +1,5 @@
+import { ChartPanel } from "./components/ChartPanel";
+import { InspectorTabs } from "./components/InspectorTabs";
 import { MarketCard } from "./components/MarketCard";
 import { RecommendationPanel } from "./components/RecommendationPanel";
 import { RuntimeHeader } from "./components/RuntimeHeader";
@@ -36,28 +38,9 @@ export function App({ apiBase = configuredApiBase() }: AppProps) {
       <section className="workspace">
         <div className="workspace-main">
           <RecommendationPanel market={selectedMarket} />
-          <section className="chart-placeholder">
-            <div className="section-title-row">
-              <h2>最近K线</h2>
-              <span className="muted">{selectedMarket?.recent_candles.length ?? 0} candles</span>
-            </div>
-            <div className="chart-empty">Chart panel pending Task 4</div>
-          </section>
+          <ChartPanel market={selectedMarket} />
         </div>
-        <aside className="inspector-panel">
-          <div className="section-title-row">
-            <h2>策略证据</h2>
-            <span className="muted">{selectedMarket?.active_model?.version ?? "no model"}</span>
-          </div>
-          <dl>
-            <dt>回测</dt>
-            <dd>{selectedMarket?.latest_backtest?.status ?? "pending"}</dd>
-            <dt>通知</dt>
-            <dd>{selectedMarket?.notification_deliveries[0]?.status ?? "none"}</dd>
-            <dt>输入快照</dt>
-            <dd>{selectedMarket?.latest_actionable_alert?.input_snapshot_hash ?? "-"}</dd>
-          </dl>
-        </aside>
+        <InspectorTabs market={selectedMarket} />
       </section>
     </main>
   );

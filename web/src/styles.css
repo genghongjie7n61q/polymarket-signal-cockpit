@@ -247,14 +247,80 @@ h2 {
   margin-top: 12px;
 }
 
-.inspector-panel dl {
+.chart-surface {
+  height: 300px;
+  margin-top: 12px;
+  min-width: 0;
+}
+
+.tab-list {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.tab-list button,
+.secondary-button {
+  background: #f7f9fb;
+  border: 1px solid #d7dde3;
+  border-radius: 6px;
+  color: #44515d;
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.tab-list button[aria-selected="true"] {
+  background: #eaf1ff;
+  border-color: #2f6fed;
+  color: #1e55bd;
+}
+
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.tab-panel {
+  margin-top: 14px;
+}
+
+.signal-list {
+  display: grid;
+  gap: 8px;
+}
+
+.signal-row {
+  align-items: center;
+  background: #f7f9fb;
+  border: 1px solid #edf0f2;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1.2fr 0.5fr 0.6fr minmax(140px, 1fr);
+  min-height: 42px;
+  padding: 8px;
+}
+
+.backtest-tab {
+  display: grid;
+  gap: 10px;
+}
+
+.metrics-grid {
   display: grid;
   gap: 10px;
   grid-template-columns: 90px minmax(0, 1fr);
   margin: 14px 0 0;
 }
 
-.inspector-panel dd {
+.metric-pair {
+  display: contents;
+}
+
+.inspector-panel dd,
+.metrics-grid dd {
   margin: 0;
   min-width: 0;
   overflow: hidden;
