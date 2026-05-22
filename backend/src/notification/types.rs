@@ -96,18 +96,23 @@ impl NotificationError {
 
 pub(crate) fn redact_webhook_secret(value: &str) -> String {
     let marker = "/open-apis/bot/v2/hook/";
-    let Some(start) = value.find(marker) else {
-        return value.to_string();
-    };
-    let secret_start = start + marker.len();
-    let secret_end = value[secret_start..]
-        .find(|character: char| character.is_whitespace() || character == '"' || character == '\'')
-        .map(|offset| secret_start + offset)
-        .unwrap_or(value.len());
     let mut redacted = String::with_capacity(value.len());
-    redacted.push_str(&value[..secret_start]);
-    redacted.push_str("****");
-    redacted.push_str(&value[secret_end..]);
+    let mut remaining = value;
+
+    while let Some(start) = remaining.find(marker) {
+        let secret_start = start + marker.len();
+        let secret_end = remaining[secret_start..]
+            .find(|character: char| {
+                character.is_whitespace() || character == '"' || character == '\''
+            })
+            .map(|offset| secret_start + offset)
+            .unwrap_or(remaining.len());
+        redacted.push_str(&remaining[..secret_start]);
+        redacted.push_str("****");
+        remaining = &remaining[secret_end..];
+    }
+
+    redacted.push_str(remaining);
     redacted
 }
 

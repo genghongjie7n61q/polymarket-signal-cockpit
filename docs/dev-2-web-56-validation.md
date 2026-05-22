@@ -68,6 +68,18 @@ notification_deliveries_api_returns_masked_status_for_market ... ok
 This closes the review note that historical or manually inserted
 `response_summary` values could contain a Feishu webhook path.
 
+Additional redaction hardening:
+
+```text
+notification_error_summary_redacts_multiple_feishu_webhook_secrets ... FAILED
+assertion failed: !summary.contains("second-token")
+
+notification_error_summary_redacts_multiple_feishu_webhook_secrets ... ok
+```
+
+This verifies all Feishu hook secrets in a summary are redacted, not only the
+first occurrence.
+
 ## Full Test Evidence
 
 Formatting check on changed Rust files:

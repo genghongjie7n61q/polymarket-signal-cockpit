@@ -226,6 +226,19 @@ fn notification_error_summary_redacts_feishu_webhook_secret() {
     assert!(!summary.contains("secret-token"));
 }
 
+#[test]
+fn notification_error_summary_redacts_multiple_feishu_webhook_secrets() {
+    let error = polymarket_backend::notification::NotificationError::SendFailed(
+        "first https://open.feishu.cn/open-apis/bot/v2/hook/first-token second https://open.feishu.cn/open-apis/bot/v2/hook/second-token".to_string(),
+    );
+
+    let summary = error.safe_summary();
+
+    assert!(!summary.contains("first-token"));
+    assert!(!summary.contains("second-token"));
+    assert_eq!(summary.matches("/hook/****").count(), 2);
+}
+
 fn test_config() -> NotificationRuntimeConfig {
     NotificationRuntimeConfig {
         max_attempts: 2,
