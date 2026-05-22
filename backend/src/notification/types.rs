@@ -4,7 +4,9 @@ use thiserror::Error;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::storage::{NotificationChannelRecord, SignalWithMarketRecord};
+use crate::storage::{
+    NotificationChannelRecord, SignalNotificationMetadata, SignalWithMarketRecord,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NotificationChannelView {
@@ -34,6 +36,7 @@ pub struct FeishuCardInput {
 pub struct NotificationJob {
     pub signal: SignalWithMarketRecord,
     pub channels: Vec<NotificationChannelRecord>,
+    pub metadata: Option<SignalNotificationMetadata>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

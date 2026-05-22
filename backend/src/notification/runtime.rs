@@ -366,11 +366,26 @@ fn dedupe_key(job: &NotificationJob, channel: &NotificationChannelRecord) -> Str
 }
 
 fn card_input(job: &NotificationJob, channel: &NotificationChannelRecord) -> FeishuCardInput {
+    let (window_start, window_end, model_key, model_version) = match job.metadata.as_ref() {
+        Some(metadata) => (
+            metadata.window_start,
+            metadata.window_end,
+            metadata.model_key.clone(),
+            metadata.model_version.clone(),
+        ),
+        None => (
+            job.signal.created_at,
+            job.signal.created_at + market_duration(&job.signal.market_key),
+            "model_version_id".to_string(),
+            job.signal.model_version_id.to_string(),
+        ),
+    };
+
     FeishuCardInput {
         market_key: job.signal.market_key.clone(),
         market_label: market_label(&job.signal.market_key),
-        window_start: job.signal.created_at,
-        window_end: job.signal.created_at + market_duration(&job.signal.market_key),
+        window_start,
+        window_end,
         side: job
             .signal
             .side
@@ -396,8 +411,8 @@ fn card_input(job: &NotificationJob, channel: &NotificationChannelRecord) -> Fei
             .map(ToString::to_string)
             .unwrap_or_else(|| "n/a".to_string()),
         ttl_ms: job.signal.ttl_ms.unwrap_or(0),
-        model_key: "model_version_id".to_string(),
-        model_version: job.signal.model_version_id.to_string(),
+        model_key,
+        model_version,
         reason: job.signal.reason.clone(),
         features: job.signal.features.clone(),
         channel: NotificationChannelView {

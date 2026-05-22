@@ -41,7 +41,23 @@ impl SignalNotificationBridge {
                     continue;
                 }
 
-                if let Err(error) = notification.try_enqueue(NotificationJob { signal, channels }) {
+                let metadata = match storage.signal_notification_metadata(signal.id).await {
+                    Ok(metadata) => metadata,
+                    Err(error) => {
+                        tracing::warn!(
+                            %error,
+                            signal_id = %signal.id,
+                            "failed to load notification signal metadata"
+                        );
+                        None
+                    }
+                };
+
+                if let Err(error) = notification.try_enqueue(NotificationJob {
+                    signal,
+                    channels,
+                    metadata,
+                }) {
                     tracing::warn!(%error, "dropped signal notification job");
                 }
             }

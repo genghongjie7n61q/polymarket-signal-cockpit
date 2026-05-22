@@ -268,9 +268,21 @@ async fn repository_inserts_signal_idempotently() {
 
     let first = storage.insert_signal(&signal).await.expect("first insert");
     let second = storage.insert_signal(&signal).await.expect("second insert");
+    let metadata = storage
+        .signal_notification_metadata(second.id)
+        .await
+        .expect("notification metadata lookup")
+        .expect("notification metadata should exist");
 
     assert_eq!(first.id, second.id);
     assert_eq!(second.side.as_deref(), Some("Up"));
+    assert_eq!(metadata.window_start, ctx.window_start);
+    assert_eq!(
+        metadata.window_end,
+        ctx.window_start + Duration::seconds(300)
+    );
+    assert_eq!(metadata.model_key, format!("baseline-{}", ctx.suffix));
+    assert_eq!(metadata.model_version, "0.1.0");
 
     ctx.cleanup().await;
 }

@@ -66,6 +66,10 @@ async fn notification_runtime_sends_enabled_feishu_channels_and_audits_deliverie
     assert!(requests
         .iter()
         .all(|request| request.payload["msg_type"] == "interactive"));
+    assert!(requests.iter().all(|request| request
+        .payload
+        .to_string()
+        .contains("baseline_direction@0.1.0")));
     assert!(requests
         .iter()
         .all(|request| !request.payload.to_string().contains("secret-token")));
@@ -246,6 +250,7 @@ fn job() -> NotificationJob {
                 ..channel("btc5m", "email", true, "https://example.invalid")
             },
         ],
+        metadata: Some(metadata()),
     }
 }
 
@@ -259,6 +264,16 @@ fn single_channel_job() -> NotificationJob {
             true,
             "https://open.feishu.cn/open-apis/bot/v2/hook/secret-token",
         )],
+        metadata: Some(metadata()),
+    }
+}
+
+fn metadata() -> polymarket_backend::storage::SignalNotificationMetadata {
+    polymarket_backend::storage::SignalNotificationMetadata {
+        window_start: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(1_800),
+        window_end: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(2_100),
+        model_key: "baseline_direction".to_string(),
+        model_version: "0.1.0".to_string(),
     }
 }
 
@@ -477,6 +492,13 @@ impl StorageRepository for CapturedRepository {
             .filter(|channel| channel.market_key == market_key)
             .cloned()
             .collect())
+    }
+
+    async fn signal_notification_metadata(
+        &self,
+        _signal_id: Uuid,
+    ) -> Result<Option<polymarket_backend::storage::SignalNotificationMetadata>, StorageError> {
+        Ok(Some(metadata()))
     }
 
     async fn upsert_notification_channel(

@@ -125,6 +125,14 @@ pub struct SignalWithMarketRecord {
     pub created_at: OffsetDateTime,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+pub struct SignalNotificationMetadata {
+    pub window_start: OffsetDateTime,
+    pub window_end: OffsetDateTime,
+    pub model_key: String,
+    pub model_version: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
 pub struct ModelAssignmentRecord {
     pub market_key: String,
