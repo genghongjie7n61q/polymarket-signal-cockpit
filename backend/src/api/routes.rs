@@ -9,8 +9,8 @@ use time::OffsetDateTime;
 
 use crate::{
     api::dto::{
-        CandleDto, CandlesResponseDto, MarketStateDto, MarketSummaryDto, MarketTickDto,
-        MarketsResponseDto, ModelAssignmentDto, ModelAssignmentsResponseDto,
+        BacktestRunDto, BacktestsResponseDto, CandleDto, CandlesResponseDto, MarketStateDto,
+        MarketSummaryDto, MarketTickDto, MarketsResponseDto, ModelAssignmentDto, ModelAssignmentsResponseDto,
         NotificationChannelDto, NotificationChannelsResponseDto, PolymarketSnapshotDto,
         RuntimeHealthDto, SignalDto, SignalsResponseDto,
     },
@@ -26,6 +26,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/markets/{market_key}/state", get(market_state))
         .route("/markets/{market_key}/candles", get(market_candles))
         .route("/signals", get(latest_signals))
+        .route("/backtests", get(latest_backtests))
         .route("/ws/markets", get(markets_ws))
         .route("/config/model-assignments", get(list_model_assignments))
         .route(
@@ -61,6 +62,13 @@ struct SetModelAssignmentRequest {
 #[derive(Debug, Clone, Deserialize)]
 struct NotificationChannelsQuery {
     market_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct BacktestsQuery {
+    market_key: Option<String>,
+    model_key: Option<String>,
+    limit: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,6 +190,32 @@ async fn latest_signals(
     Ok(Json(SignalsResponseDto {
         market_key: market_key.as_str().to_string(),
         signals: signals.into_iter().map(SignalDto::from_record).collect(),
+    }))
+}
+
+async fn latest_backtests(
+    State(state): State<AppState>,
+    Query(query): Query<BacktestsQuery>,
+) -> Result<Json<BacktestsResponseDto>, StatusCode> {
+    let market_key = match query.market_key.as_deref() {
+        Some(value) => Some(supported_market(&state, value)?),
+        None => None,
+    };
+    let limit = query.limit.unwrap_or(20).clamp(1, 100);
+    let runs = match state.storage.as_ref() {
+        Some(storage) => storage
+            .latest_backtest_runs(
+                market_key.map(|key| key.as_str()),
+                query.model_key.as_deref(),
+                limit,
+            )
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        None => Vec::new(),
+    };
+
+    Ok(Json(BacktestsResponseDto {
+        runs: runs.into_iter().map(BacktestRunDto::from_record).collect(),
     }))
 }
 
