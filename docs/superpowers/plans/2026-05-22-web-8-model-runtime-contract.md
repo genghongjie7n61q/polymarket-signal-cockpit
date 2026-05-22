@@ -212,7 +212,7 @@ Run `model_baseline_tests`; expected: pass.
 - Modify: `backend/src/model/mod.rs`
 - Test: `backend/tests/model_registry_tests.rs`
 
-- [ ] **Step 1: Write failing registry tests**
+- [x] **Step 1: Write failing registry tests**
 
 ```rust
 #[test]
@@ -231,11 +231,11 @@ fn registry_rejects_unknown_model_version() {
 }
 ```
 
-- [ ] **Step 2: Implement registry**
+- [x] **Step 2: Implement registry**
 
 Use `BTreeMap<(String, String), Arc<dyn StrategyModel>>`, and keep registration explicit. Do not load dynamic code in WEB-8.
 
-- [ ] **Step 3: Run GREEN**
+- [x] **Step 3: Run GREEN**
 
 Run `model_registry_tests`; expected: pass.
 
