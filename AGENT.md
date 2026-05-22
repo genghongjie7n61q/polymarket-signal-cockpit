@@ -70,10 +70,24 @@ This file is the project-level operating guide for Codex/agent sessions. It shou
   - Adding live trading, private key handling, or geo-bypass behavior.
   - Running destructive Git or infrastructure actions.
   - Installing local Mac environments or services.
-  - Merging to protected branches or force-pushing shared branches.
+  - Force-pushing shared branches or using destructive merge/rewrite operations.
   - Spending money, using new paid services, or changing external account settings.
   - Proceeding when Linear/task ownership is ambiguous or another session appears to own the work.
 - If blocked by a missing secret, missing permission, failing external service, unclear product decision, or repeated test failure, document the blocker and pause rather than guessing.
+
+## PR And Merge Flow
+
+- Codex may create pull requests autonomously after implementation, tests, review, and `dev-2` validation evidence are recorded.
+- PRs should target the agreed integration branch for the current milestone, usually the active development baseline unless Linear says otherwise.
+- PR descriptions must include the Linear issue, branch, commit range, changed modules, test commands, `dev-2` validation evidence, cleanup status, risk notes, and explicit confirmation that no secrets or live-trading behavior were introduced.
+- A merge may be performed autonomously only by, or after approval from, a dedicated review subagent. The review subagent must be separate from the implementation worker and must check the PR against this guide, Linear acceptance criteria, tests, `dev-2` evidence, security boundaries, and merge conflicts.
+- If the review subagent allows merge, use a normal non-destructive merge path supported by the repository. Do not force-push or rewrite shared history.
+- If merge is not allowed, create a Linear follow-up task instead of silently leaving the PR stalled. The task must explain the blocker, link or name the PR/branch, include the failed evidence, and set priority from impact:
+  - `P0` / urgent: production/runtime outage, data corruption, security boundary breach, leaked secret risk, or blocked milestone integration.
+  - `P1` / high: failing required tests, failing `dev-2` validation, unresolved merge conflicts, missing required review, or acceptance criteria not met.
+  - `P2` / normal: non-blocking review findings, observability gaps, documentation gaps, or cleanup that should happen soon.
+  - `P3` / low: polish, optional refactors, or future improvements.
+- After merging, update Linear with merge commit, final validation evidence, remaining risks, and next recommended issue.
 
 ## Branches And Worktrees
 
