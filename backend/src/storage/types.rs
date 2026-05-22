@@ -96,6 +96,75 @@ pub struct SignalRecord {
     pub created_at: OffsetDateTime,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+pub struct CandleRecord {
+    pub market_key: String,
+    pub start_ts: OffsetDateTime,
+    pub open: BigDecimal,
+    pub high: BigDecimal,
+    pub low: BigDecimal,
+    pub close: BigDecimal,
+    pub volume: BigDecimal,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, FromRow)]
+pub struct SignalWithMarketRecord {
+    pub id: Uuid,
+    pub market_key: String,
+    pub market_window_id: Uuid,
+    pub model_version_id: Uuid,
+    pub signal_type: String,
+    pub side: Option<String>,
+    pub confidence: Option<BigDecimal>,
+    pub limit_price: Option<BigDecimal>,
+    pub suggested_size: Option<BigDecimal>,
+    pub ttl_ms: Option<i32>,
+    pub reason: String,
+    pub features: Value,
+    pub input_snapshot_hash: String,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct ModelAssignmentRecord {
+    pub market_key: String,
+    pub model_key: String,
+    pub display_name: String,
+    pub version: String,
+    pub parameters: Value,
+    pub status: String,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewModelAssignment {
+    pub market_key: String,
+    pub model_key: String,
+    pub display_name: String,
+    pub version: String,
+    pub parameters: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct NotificationChannelRecord {
+    pub id: Uuid,
+    pub market_key: String,
+    pub channel_type: String,
+    pub name: String,
+    pub webhook_url: String,
+    pub enabled: bool,
+    pub created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NewNotificationChannel {
+    pub market_key: String,
+    pub channel_type: String,
+    pub name: String,
+    pub webhook_url: String,
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NewRuntimeEvent {
     pub component: String,

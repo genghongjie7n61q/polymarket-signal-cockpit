@@ -117,7 +117,7 @@ impl StorageWriter {
         _flush_interval: Duration,
     ) -> (StorageWriterHandle, JoinHandle<()>)
     where
-        R: StorageRepository + 'static,
+        R: StorageRepository + ?Sized + 'static,
     {
         let (tx, mut rx) = mpsc::channel::<StorageCommand>(capacity);
         let metrics = Arc::new(StorageWriterMetrics::default());
@@ -143,7 +143,7 @@ impl StorageWriter {
 
 async fn write_one<R>(repository: &R, command: StorageCommand, metrics: &StorageWriterMetrics)
 where
-    R: StorageRepository,
+    R: StorageRepository + ?Sized,
 {
     let mut attempt = 1;
     let result = loop {

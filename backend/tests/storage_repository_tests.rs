@@ -2,8 +2,9 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     realtime::MarketKey,
     storage::{
-        connect_pool, run_migrations, NewNotificationDelivery, NewRawMarketEvent, NewSignal,
-        NewTick, PgPoolOptionsConfig, PostgresStorage, StorageRepository,
+        connect_pool, run_migrations, NewModelAssignment, NewNotificationChannel,
+        NewNotificationDelivery, NewRawMarketEvent, NewSignal, NewTick, PgPoolOptionsConfig,
+        PostgresStorage, StorageRepository,
     },
 };
 use serde_json::json;
@@ -365,6 +366,183 @@ async fn repository_queries_replay_ticks_by_market_window() {
     ctx.cleanup().await;
 }
 
+#[tokio::test]
+async fn repository_queries_recent_candles_by_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    for offset in [0, 60, 120] {
+        sqlx::query(
+            r#"
+            INSERT INTO candles_1m (market_id, start_ts, open, high, low, close, volume)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(ctx.market_id)
+        .bind(ctx.window_start + Duration::seconds(offset))
+        .bind(BigDecimal::from(78_000 + offset))
+        .bind(BigDecimal::from(78_010 + offset))
+        .bind(BigDecimal::from(77_990 + offset))
+        .bind(BigDecimal::from(78_005 + offset))
+        .bind(BigDecimal::from(offset + 1))
+        .execute(&ctx.pool)
+        .await
+        .expect("candle insert");
+    }
+
+    let candles = storage
+        .recent_candles(&ctx.market_key, 2)
+        .await
+        .expect("recent candle query");
+
+    assert_eq!(candles.len(), 2);
+    assert_eq!(candles[0].market_key, ctx.market_key);
+    assert_eq!(
+        candles[0].start_ts,
+        ctx.window_start + Duration::seconds(60)
+    );
+    assert_eq!(candles[0].close, BigDecimal::from(78_065));
+    assert_eq!(
+        candles[1].start_ts,
+        ctx.window_start + Duration::seconds(120)
+    );
+
+    ctx.cleanup().await;
+}
+
+#[tokio::test]
+async fn repository_queries_latest_signals_by_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    for (index, side) in [(1, "Up"), (2, "Down"), (3, "Up")] {
+        storage
+            .insert_signal(&NewSignal {
+                market_window_id: ctx.window_id,
+                model_version_id: ctx.model_version_id,
+                signal_type: "actionable_alert".to_string(),
+                side: Some(side.to_string()),
+                confidence: Some(BigDecimal::from(80 + index) / BigDecimal::from(100)),
+                limit_price: Some(BigDecimal::from(50 + index) / BigDecimal::from(100)),
+                suggested_size: Some(BigDecimal::from(index)),
+                ttl_ms: Some(15_000),
+                reason: format!("signal {index}"),
+                features: json!({"index": index}),
+                input_snapshot_hash: format!("latest-{index}-{}", ctx.suffix),
+            })
+            .await
+            .expect("signal insert");
+    }
+
+    let signals = storage
+        .latest_signals(&ctx.market_key, 2)
+        .await
+        .expect("latest signal query");
+
+    assert_eq!(signals.len(), 2);
+    assert!(signals[0].created_at >= signals[1].created_at);
+    assert_eq!(signals[0].market_key, ctx.market_key);
+    assert_eq!(signals[0].reason, "signal 3");
+    assert_eq!(signals[1].reason, "signal 2");
+
+    ctx.cleanup().await;
+}
+
+#[tokio::test]
+async fn repository_sets_one_active_model_assignment_per_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let first = storage
+        .set_active_model_assignment(&NewModelAssignment {
+            market_key: ctx.market_key.clone(),
+            model_key: format!("momentum-{}", ctx.suffix),
+            display_name: "Momentum Test".to_string(),
+            version: "0.1.0".to_string(),
+            parameters: json!({"threshold_bps": 4}),
+        })
+        .await
+        .expect("first assignment");
+    let second = storage
+        .set_active_model_assignment(&NewModelAssignment {
+            market_key: ctx.market_key.clone(),
+            model_key: format!("mean-reversion-{}", ctx.suffix),
+            display_name: "Mean Reversion Test".to_string(),
+            version: "0.2.0".to_string(),
+            parameters: json!({"threshold_bps": 7}),
+        })
+        .await
+        .expect("second assignment");
+
+    assert_eq!(first.status, "active");
+    assert_eq!(second.status, "active");
+    assert_eq!(second.model_key, format!("mean-reversion-{}", ctx.suffix));
+
+    let assignments = storage
+        .list_model_assignments()
+        .await
+        .expect("assignment list");
+    let active = assignments
+        .into_iter()
+        .filter(|assignment| assignment.market_key == ctx.market_key)
+        .collect::<Vec<_>>();
+
+    assert_eq!(active.len(), 1);
+    assert_eq!(
+        active[0].model_key,
+        format!("mean-reversion-{}", ctx.suffix)
+    );
+    assert_eq!(active[0].parameters, json!({"threshold_bps": 7}));
+
+    ctx.cleanup().await;
+}
+
+#[tokio::test]
+async fn repository_lists_and_upserts_notification_channels_by_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let first = storage
+        .upsert_notification_channel(&NewNotificationChannel {
+            market_key: ctx.market_key.clone(),
+            channel_type: "feishu".to_string(),
+            name: "primary".to_string(),
+            webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/original".to_string(),
+            enabled: true,
+        })
+        .await
+        .expect("first channel");
+    let updated = storage
+        .upsert_notification_channel(&NewNotificationChannel {
+            market_key: ctx.market_key.clone(),
+            channel_type: "feishu".to_string(),
+            name: "primary".to_string(),
+            webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/updated".to_string(),
+            enabled: false,
+        })
+        .await
+        .expect("updated channel");
+
+    assert_eq!(first.id, updated.id);
+    assert!(!updated.enabled);
+
+    let channels = storage
+        .list_notification_channels(&ctx.market_key)
+        .await
+        .expect("channel list");
+
+    let matching = channels
+        .into_iter()
+        .filter(|channel| channel.name == "primary")
+        .collect::<Vec<_>>();
+    assert_eq!(matching.len(), 1);
+    assert_eq!(matching[0].market_key, ctx.market_key);
+    assert_eq!(matching[0].webhook_url, updated.webhook_url);
+    assert!(!matching[0].enabled);
+
+    ctx.cleanup().await;
+}
+
 struct TestContext {
     pool: PgPool,
     suffix: String,
@@ -567,11 +745,36 @@ impl TestContext {
             .await
             .expect("notification channel cleanup");
 
+        sqlx::query(
+            r#"
+            DELETE FROM model_versions
+            WHERE model_id IN (
+                SELECT id FROM models WHERE model_key LIKE $1
+            )
+            "#,
+        )
+        .bind(format!("%{}%", self.suffix))
+        .execute(&self.pool)
+        .await
+        .expect("suffixed model version cleanup");
+
+        sqlx::query("DELETE FROM models WHERE model_key LIKE $1")
+            .bind(format!("%{}%", self.suffix))
+            .execute(&self.pool)
+            .await
+            .expect("suffixed model cleanup");
+
         sqlx::query("DELETE FROM ticks WHERE market_id = $1")
             .bind(self.market_id)
             .execute(&self.pool)
             .await
             .expect("tick cleanup");
+
+        sqlx::query("DELETE FROM candles_1m WHERE market_id = $1")
+            .bind(self.market_id)
+            .execute(&self.pool)
+            .await
+            .expect("candle cleanup");
 
         sqlx::query(
             r#"

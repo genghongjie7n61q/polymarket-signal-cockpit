@@ -6,8 +6,9 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::realtime::{
-    MarketKey, RealtimeBus, RealtimeBusSnapshot, RealtimeEvent, RealtimeStateMetrics,
-    RealtimeStateOwner, RealtimeStorageBridge, RealtimeStorageBridgeSnapshot, StateOwnerConfig,
+    LiveMarketSummary, MarketKey, RealtimeBus, RealtimeBusSnapshot, RealtimeEvent,
+    RealtimeStateMetrics, RealtimeStateOwner, RealtimeStateSnapshot, RealtimeStorageBridge,
+    RealtimeStorageBridgeSnapshot, StateOwnerConfig,
 };
 use crate::storage::StorageWriterHandle;
 
@@ -82,6 +83,22 @@ impl RealtimeRuntime {
                 .as_ref()
                 .map(RealtimeStorageBridge::snapshot),
         }
+    }
+
+    pub fn state_snapshot(&self) -> RealtimeStateSnapshot {
+        self.state_owner.snapshot()
+    }
+
+    pub fn source_status_at(&self, now: OffsetDateTime) -> BTreeMap<String, String> {
+        self.state_owner.source_status_at(now)
+    }
+
+    pub fn market_summaries_at(
+        &self,
+        market_keys: &[MarketKey],
+        now: OffsetDateTime,
+    ) -> Vec<LiveMarketSummary> {
+        self.state_owner.market_summaries_at(market_keys, now)
     }
 }
 

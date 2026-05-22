@@ -41,6 +41,15 @@ pub struct LiveMarketState {
     pub candles: Vec<CandleSnapshot>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiveMarketSummary {
+    pub market_key: MarketKey,
+    pub latest_tick: Option<MarketTick>,
+    pub current_window: Option<MarketWindowState>,
+    pub latest_snapshot: Option<PolymarketSnapshot>,
+    pub source_status: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceSnapshot {
     pub last_seen_at: OffsetDateTime,
@@ -117,6 +126,54 @@ impl RealtimeStateOwner {
                 (source, state.to_string())
             })
             .collect()
+    }
+
+    pub fn market_summaries_at(
+        &self,
+        market_keys: &[MarketKey],
+        now: OffsetDateTime,
+    ) -> Vec<LiveMarketSummary> {
+        let state = self.state.read().expect("realtime state lock poisoned");
+        market_keys
+            .iter()
+            .map(|market_key| {
+                let live = state.markets.get(market_key);
+                LiveMarketSummary {
+                    market_key: *market_key,
+                    latest_tick: live.and_then(|market| market.latest_tick.clone()),
+                    current_window: live.and_then(|market| market.current_window.clone()),
+                    latest_snapshot: live.and_then(|market| market.latest_snapshot.clone()),
+                    source_status: source_status_for(
+                        &state,
+                        default_source(*market_key),
+                        now,
+                        &self.config,
+                    ),
+                }
+            })
+            .collect()
+    }
+}
+
+fn source_status_for(
+    state: &RealtimeStateSnapshot,
+    source: &str,
+    now: OffsetDateTime,
+    config: &StateOwnerConfig,
+) -> Option<String> {
+    state.sources.get(source).map(|status| {
+        if now - status.last_seen_at > config.stale_after {
+            "stale"
+        } else {
+            "fresh"
+        }
+        .to_string()
+    })
+}
+
+fn default_source(market_key: MarketKey) -> &'static str {
+    match market_key {
+        MarketKey::Btc5m | MarketKey::Eth15m => "coinbase",
     }
 }
 

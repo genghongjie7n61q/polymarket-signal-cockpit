@@ -5,9 +5,11 @@ use polymarket_backend::{
     realtime::{MarketTick, RealtimeBus, RealtimeEvent, RealtimeRuntime, RealtimeStateOwner},
     router::{build_router, build_router_with_runtime, build_router_with_storage},
     storage::{
+        CandleRecord, ModelAssignmentRecord, NewModelAssignment, NewNotificationChannel,
         NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageCommand,
-        StorageError, StorageRepository, StorageWriter, StorageWriterRuntime, TickRecord,
+        NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
+        SignalRecord, SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository,
+        StorageWriter, StorageWriterRuntime, TickRecord,
     },
 };
 use serde_json::{json, Value};
@@ -215,5 +217,46 @@ impl StorageRepository for HealthRepository {
         _window_start: OffsetDateTime,
     ) -> Result<Vec<ReplayTick>, StorageError> {
         unreachable!("health test does not replay ticks")
+    }
+
+    async fn recent_candles(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<CandleRecord>, StorageError> {
+        unreachable!("health test does not query candles")
+    }
+
+    async fn latest_signals(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<SignalWithMarketRecord>, StorageError> {
+        unreachable!("health test does not query signals")
+    }
+
+    async fn list_model_assignments(&self) -> Result<Vec<ModelAssignmentRecord>, StorageError> {
+        unreachable!("health test does not query model assignments")
+    }
+
+    async fn set_active_model_assignment(
+        &self,
+        _assignment: &NewModelAssignment,
+    ) -> Result<ModelAssignmentRecord, StorageError> {
+        unreachable!("health test does not set model assignments")
+    }
+
+    async fn list_notification_channels(
+        &self,
+        _market_key: &str,
+    ) -> Result<Vec<NotificationChannelRecord>, StorageError> {
+        unreachable!("health test does not query notification channels")
+    }
+
+    async fn upsert_notification_channel(
+        &self,
+        _channel: &NewNotificationChannel,
+    ) -> Result<NotificationChannelRecord, StorageError> {
+        unreachable!("health test does not upsert notification channels")
     }
 }
