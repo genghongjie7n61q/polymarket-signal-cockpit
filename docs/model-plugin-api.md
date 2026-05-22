@@ -1,106 +1,85 @@
 # Model Plugin API
 
-The model interface must stay small. A model should not know about Feishu, database tables, or UI details. It receives normalized market context and emits a signal.
+The model interface is intentionally small. A model receives a normalized `ModelContext` and returns a deterministic `ModelDecision`. It must not know about Feishu, HTTP handlers, database tables, browser automation, private keys, or order execution.
 
 ## Lifecycle
 
 ```text
-init(config) -> state
-on_tick(context, tick, state) -> ModelDecision
-backtest(dataset, config) -> BacktestResult
+StrategyModel::key() -> "baseline_direction"
+StrategyModel::version() -> "0.1.0"
+StrategyModel::decide(context) -> ModelDecision
 ```
+
+Realtime execution must be synchronous and CPU-only. Network I/O, database reads, notification delivery, and order placement stay outside the model.
 
 ## Context
 
-```json
-{
-  "market": "btc5m",
-  "symbol": "BTC-USD",
-  "window": {
-    "start_ts": 1779330000,
-    "end_ts": 1779330300,
-    "elapsed_ms": 182000
-  },
-  "latest_tick": {
-    "source": "coinbase",
-    "ts_ms": 1779330182123,
-    "price": 77998.25,
-    "size": 0.03
-  },
-  "candles": [
-    {
-      "start_ts": 1779330000,
-      "open": 77965.3,
-      "high": 78010.1,
-      "low": 77920.4,
-      "close": 77998.2,
-      "volume": 12.3
-    }
-  ],
-  "polymarket": {
-    "event_slug": "btc-updown-5m-1779330000",
-    "up_price": 0.505,
-    "down_price": 0.495,
-    "spread": 0.01,
-    "liquidity": 12225.36
-  },
-  "portfolio": {
-    "bankroll": 15.0,
-    "max_signal_size": 1.5
-  }
-}
-```
+`ModelContext` contains:
 
-## Decision Output
+- `market_key`, `symbol`, and active `assignment` (`model_key`, `model_version`, `parameters`).
+- `window` with `event_slug`, `start_ts`, `end_ts`, and `elapsed_ms`.
+- `latest_tick` with source, timestamps, price, size, and sequence.
+- recent typed `candles`.
+- `polymarket` side prices, spread, liquidity, and event slug.
+- `portfolio` sizing inputs such as bankroll and max signal size.
+
+`ModelContext::input_snapshot_hash()` returns a stable SHA-256 hash of the full serialized input. Signals and backtests should store this hash with the decision features.
+
+## Decision
+
+`ModelDecision` is either:
 
 ```json
 {
   "action": "NO_TRADE",
-  "reason": "waiting for decision minute"
+  "reason": "waiting for decision offset",
+  "features": {}
 }
 ```
+
+or:
 
 ```json
 {
   "action": "CANDIDATE",
   "side": "Up",
-  "confidence": 0.9091,
-  "limit_price": 0.505,
-  "suggested_size": 1.22,
+  "confidence": "0.60",
+  "limit_price": "0.50",
+  "suggested_size": "1.50",
   "ttl_ms": 15000,
-  "reason": "m3 move crossed 4bps threshold",
+  "reason": "directional threshold crossed",
   "features": {
-    "decision_return": 0.0004767,
-    "threshold_bps": 4
+    "model_key": "baseline_direction",
+    "model_version": "0.1.0",
+    "market_key": "btc5m",
+    "return_bps": "1000",
+    "threshold_bps": "4",
+    "input_snapshot_hash": "..."
   }
 }
 ```
+
+## Built-Ins
+
+WEB-8 includes `baseline_direction@0.1.0` for BTC 5m and ETH 15m platform validation. It is not an optimized trading strategy. It waits until the decision offset, compares the latest tick to the first candle open, applies a bps threshold, chooses Up/Down, uses the matching Polymarket side price, and sizes with platform fractional Kelly.
+
+`SizingEngine` uses binary-contract fractional Kelly:
+
+```text
+raw_fraction = (win_probability - contract_price) / (1 - contract_price)
+size = bankroll * raw_fraction * fraction
+```
+
+Non-positive edge, invalid prices/probabilities, or sizes below the configured minimum produce no candidate.
 
 ## Backtest Result
 
-```json
-{
-  "model_id": "threshold_direction",
-  "model_version": "0.1.0",
-  "dataset": "btc5m_recent_576",
-  "trades": 253,
-  "wins": 230,
-  "accuracy": 0.9091,
-  "wilson_lower_bound": 0.8673,
-  "coverage": 0.44,
-  "max_drawdown": 0.0,
-  "parameters": {
-    "decision_minute": 3,
-    "threshold_bps": 4
-  }
-}
-```
+`BacktestResult` carries model key, version, dataset, trades, wins, accuracy, Wilson lower bound, coverage, max drawdown, and parameters. Replay/backtest code should use the same `ModelContext` and `StrategyModel::decide` contract as realtime execution.
 
 ## Rules
 
-- Model output must be deterministic for the same input.
-- Models may keep internal state, but state must be serializable.
-- Models must not perform network calls in the realtime path.
-- Models must not send notifications directly.
-- Models must include a TTL for actionable decisions.
-- Every signal must record model id, model version, parameters, and feature values used.
+- Same input must produce the same output.
+- Models may keep state only if that state is serializable and replayable.
+- Models must include TTL for actionable candidates.
+- Every candidate must include model key, model version, parameters or feature values, and input snapshot hash.
+- Community/dynamic plugin loading, signatures, and sandboxing are future work; WEB-8 only registers explicit built-in Rust models.
