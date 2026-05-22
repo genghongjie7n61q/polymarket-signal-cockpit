@@ -77,6 +77,71 @@ fn baseline_sizing_respects_context_portfolio_caps() {
 }
 
 #[test]
+fn baseline_assignment_parameters_override_threshold_ttl_and_sizing() {
+    let model = BaselineDirectionModel::btc5m_default();
+    let mut context = sample_context(MarketKey::Btc5m);
+    context.assignment.parameters = json!({
+        "threshold_bps": "5",
+        "ttl_ms": 7_000,
+        "kelly_fraction": "1.0",
+        "min_size": "0.10",
+        "max_size": "0.80"
+    });
+    context.latest_tick.price = bd("110");
+    context.polymarket.up_price = Some(bd("0.50"));
+
+    let decision = model.decide(&context);
+
+    assert_eq!(decision.action, ModelAction::Candidate);
+    assert_eq!(decision.ttl_ms(), Some(7_000));
+    assert_eq!(decision.suggested_size, Some(bd("0.80")));
+    assert_eq!(decision.features()["threshold_bps"], json!("5"));
+}
+
+#[test]
+fn baseline_assignment_threshold_can_suppress_candidate() {
+    let model = BaselineDirectionModel::btc5m_default();
+    let mut context = sample_context(MarketKey::Btc5m);
+    context.assignment.parameters = json!({"threshold_bps": "20"});
+    context.latest_tick.price = bd("100.10");
+    context.polymarket.up_price = Some(bd("0.50"));
+
+    let decision = model.decide(&context);
+
+    assert_eq!(decision.action, ModelAction::NoTrade);
+    assert_eq!(decision.reason, "move below threshold");
+}
+
+#[test]
+fn baseline_invalid_assignment_parameters_return_no_trade() {
+    let model = BaselineDirectionModel::btc5m_default();
+    let mut context = sample_context(MarketKey::Btc5m);
+    context.assignment.parameters = json!({"ttl_ms": -1});
+    context.latest_tick.price = bd("110");
+    context.polymarket.up_price = Some(bd("0.50"));
+
+    let decision = model.decide(&context);
+
+    assert_eq!(decision.action, ModelAction::NoTrade);
+    assert_eq!(
+        decision.reason,
+        "invalid assignment parameters: ttl_ms must be positive"
+    );
+}
+
+#[test]
+fn baseline_empty_assignment_parameters_keep_default_behavior() {
+    let model = BaselineDirectionModel::btc5m_default();
+    let mut context = sample_context(MarketKey::Btc5m);
+    context.assignment.parameters = json!({});
+    context.latest_tick.price = bd("110");
+    context.polymarket.up_price = Some(bd("0.50"));
+
+    assert_eq!(model.decide(&context), model.decide(&context));
+    assert_eq!(model.decide(&context).ttl_ms(), Some(15_000));
+}
+
+#[test]
 fn baseline_returns_down_candidate_using_down_price() {
     let model = BaselineDirectionModel::eth15m_default();
     let mut context = sample_context(MarketKey::Eth15m);
