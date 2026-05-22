@@ -94,7 +94,7 @@ impl StrategyModel for BaselineDirectionModel {
                 + abs_return_bps.clone() / BigDecimal::from(10_000),
             BigDecimal::from(99) / BigDecimal::from(100),
         );
-        let sizing = SizingEngine::new(self.config.sizing.clone());
+        let sizing = SizingEngine::new(sizing_config_for_context(&self.config, context));
         let Some(suggested_size) = sizing.suggest_size(&confidence, limit_price) else {
             return ModelDecision::no_trade("positive edge below minimum size");
         };
@@ -143,6 +143,29 @@ fn cap_decimal(value: BigDecimal, max: BigDecimal) -> BigDecimal {
         max
     } else {
         value
+    }
+}
+
+fn min_decimal(left: BigDecimal, right: BigDecimal) -> BigDecimal {
+    if left < right {
+        left
+    } else {
+        right
+    }
+}
+
+fn sizing_config_for_context(
+    config: &BaselineDirectionConfig,
+    context: &ModelContext,
+) -> SizingConfig {
+    SizingConfig {
+        bankroll: context.portfolio.bankroll.clone(),
+        fraction: config.sizing.fraction.clone(),
+        max_size: min_decimal(
+            config.sizing.max_size.clone(),
+            context.portfolio.max_signal_size.clone(),
+        ),
+        min_size: config.sizing.min_size.clone(),
     }
 }
 

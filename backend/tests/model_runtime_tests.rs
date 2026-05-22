@@ -2,8 +2,8 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     model::{
         ModelAction, ModelAssignment, ModelCandle, ModelContext, ModelPolymarket, ModelPortfolio,
-        ModelRegistry, ModelRuntime, ModelTickInput, ModelWindow, BASELINE_DIRECTION_KEY,
-        BASELINE_DIRECTION_VERSION,
+        ModelRegistry, ModelRuntime, ModelRuntimeError, ModelTickInput, ModelWindow,
+        BASELINE_DIRECTION_KEY, BASELINE_DIRECTION_VERSION,
     },
     realtime::MarketKey,
 };
@@ -75,6 +75,24 @@ async fn model_runtime_records_unknown_assignment_as_failed() {
     .expect("runtime should process the context");
 }
 
+#[tokio::test]
+async fn model_runtime_reports_queue_full_without_blocking() {
+    let runtime = ModelRuntime::spawn_paused_for_tests(1);
+    let context = sample_context_for_model("blocking_model", "0.1.0");
+
+    runtime
+        .try_enqueue(context.clone())
+        .expect("first context should enqueue");
+
+    let error = runtime
+        .try_enqueue(context)
+        .expect_err("second context should see full queue");
+
+    assert_eq!(error, ModelRuntimeError::QueueFull);
+    assert_eq!(runtime.snapshot().accepted, 1);
+    assert_eq!(runtime.snapshot().dropped, 1);
+}
+
 fn sample_context(market_key: MarketKey) -> ModelContext {
     let start_ts = OffsetDateTime::UNIX_EPOCH + Duration::seconds(1_779_330_300);
     ModelContext {
@@ -119,6 +137,13 @@ fn sample_context(market_key: MarketKey) -> ModelContext {
             max_signal_size: bd("1.5"),
         },
     }
+}
+
+fn sample_context_for_model(model_key: &str, model_version: &str) -> ModelContext {
+    let mut context = sample_context(MarketKey::Btc5m);
+    context.assignment.model_key = model_key.to_string();
+    context.assignment.model_version = model_version.to_string();
+    context
 }
 
 fn bd(value: &str) -> BigDecimal {

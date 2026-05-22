@@ -22,11 +22,11 @@ TDD evidence:
 - `model_sizing_tests` RED: `SizingConfig` / `SizingEngine` were missing.
 - `model_sizing_tests` GREEN: 4 passed.
 - `model_baseline_tests` RED: `BaselineDirectionConfig` / `BaselineDirectionModel` were missing.
-- `model_baseline_tests` GREEN: 5 passed.
+- `model_baseline_tests` GREEN: 6 passed.
 - `model_registry_tests` RED: `ModelRegistry` was missing.
 - `model_registry_tests` GREEN: 3 passed.
 - `model_runtime_tests` RED: `ModelRuntime` was missing, then `last_decision` was missing.
-- `model_runtime_tests` GREEN: 2 passed.
+- `model_runtime_tests` GREEN: 3 passed.
 
 Runtime boundary:
 
@@ -44,5 +44,5 @@ ssh dev-2 'curl -fsS http://192.168.103.157:8080/healthz'
 Final results:
 
 - `cargo fmt --check` passed.
-- `cargo test -p polymarket-backend --locked` passed: 85 backend tests, 0 failures.
+- `cargo test -p polymarket-backend --locked` passed: 87 backend tests, 0 failures.
 - `curl -fsS http://192.168.103.157:8080/healthz` returned `status=ok`, `database_configured=true`, and realtime sources `coinbase=fresh`, `polymarket=fresh`.

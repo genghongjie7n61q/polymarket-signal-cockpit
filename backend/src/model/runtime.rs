@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -30,7 +30,8 @@ pub struct ModelRuntimeSnapshot {
 pub struct ModelRuntime {
     tx: mpsc::Sender<ModelContext>,
     metrics: Arc<RwLock<ModelRuntimeSnapshot>>,
-    _task: Arc<JoinHandle<()>>,
+    _task: Option<Arc<JoinHandle<()>>>,
+    _rx_guard: Option<Arc<Mutex<mpsc::Receiver<ModelContext>>>>,
 }
 
 impl ModelRuntime {
@@ -72,7 +73,18 @@ impl ModelRuntime {
         Self {
             tx,
             metrics,
-            _task: Arc::new(task),
+            _task: Some(Arc::new(task)),
+            _rx_guard: None,
+        }
+    }
+
+    pub fn spawn_paused_for_tests(capacity: usize) -> Self {
+        let (tx, rx) = mpsc::channel::<ModelContext>(capacity);
+        Self {
+            tx,
+            metrics: Arc::new(RwLock::new(ModelRuntimeSnapshot::default())),
+            _task: None,
+            _rx_guard: Some(Arc::new(Mutex::new(rx))),
         }
     }
 

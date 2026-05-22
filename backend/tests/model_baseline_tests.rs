@@ -63,6 +63,20 @@ fn baseline_returns_up_candidate_with_ttl_limit_price_size_and_features() {
 }
 
 #[test]
+fn baseline_sizing_respects_context_portfolio_caps() {
+    let model = BaselineDirectionModel::btc5m_default();
+    let mut context = sample_context(MarketKey::Btc5m);
+    context.latest_tick.price = bd("110");
+    context.polymarket.up_price = Some(bd("0.50"));
+    context.portfolio.max_signal_size = bd("0.75");
+
+    let decision = model.decide(&context);
+
+    assert_eq!(decision.action, ModelAction::Candidate);
+    assert_eq!(decision.suggested_size, Some(bd("0.75")));
+}
+
+#[test]
 fn baseline_returns_down_candidate_using_down_price() {
     let model = BaselineDirectionModel::eth15m_default();
     let mut context = sample_context(MarketKey::Eth15m);
