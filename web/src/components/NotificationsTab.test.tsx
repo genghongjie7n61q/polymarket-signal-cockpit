@@ -64,6 +64,17 @@ describe("NotificationsTab", () => {
     expect(screen.queryByText("https://open.feishu.cn/.../abcd")).not.toBeInTheDocument();
   });
 
+  it("does not clear in-progress edits when the same market refreshes", () => {
+    const { rerender } = render(<NotificationsTab adminToken="" apiBase="/api" market={bootstrapFixture.markets[0]} />);
+    fireEvent.change(screen.getByLabelText("Webhook URL"), {
+      target: { value: "https://open.feishu.cn/open-apis/bot/v2/hook/in-progress" },
+    });
+
+    rerender(<NotificationsTab adminToken="" apiBase="/api" market={structuredClone(bootstrapFixture.markets[0])} />);
+
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue("https://open.feishu.cn/open-apis/bot/v2/hook/in-progress");
+  });
+
   it("displays dry-run result separately from delivery history", async () => {
     vi.stubGlobal(
       "fetch",

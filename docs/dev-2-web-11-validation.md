@@ -13,7 +13,7 @@ npm ci && npm test -- --run && npm run build
 Result:
 
 - 9 Vitest files passed.
-- 21 frontend tests passed.
+- 23 frontend tests passed.
 - Vite production build passed.
 
 Backend validation ran on dev-2 in `rust:1.87-bookworm`:
@@ -51,6 +51,7 @@ Result:
 - Browser loaded the cockpit and fetched bootstrap data after the backend CORS layer was added.
 - Review fixes added full bootstrap refresh after WebSocket snapshots, guarded stale WebSocket callbacks, password-style webhook input, and market switch notification state reset.
 - Review-fix compose smoke used `npm ci` for the web service startup path and passed on `192.168.103.157:28081` / `192.168.103.157:25174`.
+- Re-review fixes added full-refresh rate limiting and prevented same-market bootstrap refreshes from clearing notification form drafts.
 
 ## Browser Findings
 

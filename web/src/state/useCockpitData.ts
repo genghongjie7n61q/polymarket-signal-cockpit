@@ -20,6 +20,7 @@ export interface CockpitDataState {
 
 export interface UseCockpitDataOptions {
   apiBase: string;
+  fullRefreshMinMs?: number;
   reconnectBaseMs?: number;
   reconnectMaxMs?: number;
 }
@@ -68,6 +69,7 @@ function mergeMarketSummaries(markets: CockpitMarket[], summaries: MarketSummary
 
 export function useCockpitData({
   apiBase,
+  fullRefreshMinMs = 5000,
   reconnectBaseMs = 500,
   reconnectMaxMs = 5000,
 }: UseCockpitDataOptions): CockpitDataState {
@@ -84,6 +86,7 @@ export function useCockpitData({
   const disposedRef = useRef(false);
   const socketGenerationRef = useRef(0);
   const fullRefreshInFlightRef = useRef(false);
+  const fullRefreshLastStartedAtRef = useRef(0);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -117,8 +120,10 @@ export function useCockpitData({
         }
         setGeneratedAt(message.generated_at);
         setMarkets((current) => mergeMarketSummaries(current, message.markets));
-        if (!fullRefreshInFlightRef.current) {
+        const now = Date.now();
+        if (!fullRefreshInFlightRef.current && now - fullRefreshLastStartedAtRef.current >= fullRefreshMinMs) {
           fullRefreshInFlightRef.current = true;
+          fullRefreshLastStartedAtRef.current = now;
           fetchBootstrap(apiBase)
             .then((bootstrap) => {
               if (disposedRef.current || generation !== socketGenerationRef.current) {
@@ -161,7 +166,7 @@ export function useCockpitData({
         reconnectTimerRef.current = window.setTimeout(connectWebSocket, delay);
       },
     });
-  }, [apiBase, clearReconnectTimer, reconnectBaseMs, reconnectMaxMs]);
+  }, [apiBase, clearReconnectTimer, fullRefreshMinMs, reconnectBaseMs, reconnectMaxMs]);
 
   const refresh = useCallback(async () => {
     setLoading(true);

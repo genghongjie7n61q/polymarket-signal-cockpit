@@ -130,6 +130,37 @@ describe("useCockpitData", () => {
     expect(result.current.markets[0].latest_actionable_alert?.reason).toBe("new realtime alert");
   });
 
+  it("rate limits full bootstrap refreshes from frequent websocket snapshots", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => structuredClone(bootstrapFixture),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useCockpitData({ apiBase: "http://backend.test/api", fullRefreshMinMs: 1000 }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() =>
+      FakeWebSocket.instances[0].emitMessage({
+        type: "snapshot",
+        generated_at: "2026-05-22T00:02:00Z",
+        markets: [bootstrapFixture.markets[0].summary],
+      }),
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    act(() =>
+      FakeWebSocket.instances[0].emitMessage({
+        type: "snapshot",
+        generated_at: "2026-05-22T00:02:01Z",
+        markets: [bootstrapFixture.markets[0].summary],
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores close events from replaced websocket instances", async () => {
     const { result } = renderHook(() =>
       useCockpitData({ apiBase: "http://backend.test/api", reconnectBaseMs: 10, reconnectMaxMs: 20 }),

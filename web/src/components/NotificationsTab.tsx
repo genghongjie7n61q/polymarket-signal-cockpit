@@ -15,6 +15,7 @@ export function NotificationsTab({ market, apiBase, adminToken }: NotificationsT
   const [enabled, setEnabled] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [dryRun, setDryRun] = useState<FeishuDryRunResponse | null>(null);
+  const marketKey = market.summary.market_key;
 
   useEffect(() => {
     setChannels(market.notification_channels);
@@ -23,7 +24,7 @@ export function NotificationsTab({ market, apiBase, adminToken }: NotificationsT
     setEnabled(true);
     setMessage(null);
     setDryRun(null);
-  }, [market]);
+  }, [marketKey]);
 
   async function onSave() {
     setMessage(null);
