@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        atomic::{AtomicUsize, Ordering},
         Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -15,9 +15,9 @@ use polymarket_backend::{
     storage::{
         BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
         NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
-        NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick,
-        RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository,
-        StorageWriter, TickRecord,
+        NewSignal, NewTick, NotificationChannelRecord, NotificationDeliveryRecord,
+        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord,
+        StorageError, StorageRepository, StorageWriter, TickRecord,
     },
 };
 use serde_json::Value;
@@ -60,29 +60,41 @@ async fn notification_runtime_sends_enabled_feishu_channels_and_audits_deliverie
 
     let requests = sender.requests();
     assert_eq!(requests.len(), 2);
-    assert!(requests
-        .iter()
-        .all(|request| request.webhook_url.starts_with("https://open.feishu.cn/")));
-    assert!(requests
-        .iter()
-        .all(|request| request.payload["msg_type"] == "interactive"));
-    assert!(requests.iter().all(|request| request
-        .payload
-        .to_string()
-        .contains("baseline_direction@0.1.0")));
-    assert!(requests
-        .iter()
-        .all(|request| !request.payload.to_string().contains("secret-token")));
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.webhook_url.starts_with("https://open.feishu.cn/"))
+    );
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.payload["msg_type"] == "interactive")
+    );
+    assert!(requests.iter().all(|request| {
+        request
+            .payload
+            .to_string()
+            .contains("baseline_direction@0.1.0")
+    }));
+    assert!(
+        requests
+            .iter()
+            .all(|request| !request.payload.to_string().contains("secret-token"))
+    );
 
     let deliveries = repository.deliveries();
     assert_eq!(deliveries.len(), 2);
     assert!(deliveries.iter().all(|delivery| delivery.status == "sent"));
-    assert!(deliveries
-        .iter()
-        .all(|delivery| delivery.attempt_count == 1));
-    assert!(deliveries
-        .iter()
-        .all(|delivery| delivery.dedupe_key.contains(&market_window_id.to_string())));
+    assert!(
+        deliveries
+            .iter()
+            .all(|delivery| delivery.attempt_count == 1)
+    );
+    assert!(
+        deliveries
+            .iter()
+            .all(|delivery| delivery.dedupe_key.contains(&market_window_id.to_string()))
+    );
 
     drop(runtime);
     writer_task.abort();
@@ -212,6 +224,19 @@ fn notification_error_summary_redacts_feishu_webhook_secret() {
 
     assert!(summary.contains("/hook/****"));
     assert!(!summary.contains("secret-token"));
+}
+
+#[test]
+fn notification_error_summary_redacts_multiple_feishu_webhook_secrets() {
+    let error = polymarket_backend::notification::NotificationError::SendFailed(
+        "first https://open.feishu.cn/open-apis/bot/v2/hook/first-token second https://open.feishu.cn/open-apis/bot/v2/hook/second-token".to_string(),
+    );
+
+    let summary = error.safe_summary();
+
+    assert!(!summary.contains("first-token"));
+    assert!(!summary.contains("second-token"));
+    assert_eq!(summary.matches("/hook/****").count(), 2);
 }
 
 fn test_config() -> NotificationRuntimeConfig {
@@ -421,6 +446,14 @@ impl StorageRepository for CapturedRepository {
             .expect("deliveries lock")
             .push(delivery.clone());
         Ok(Uuid::new_v4())
+    }
+
+    async fn latest_notification_deliveries(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<NotificationDeliveryRecord>, StorageError> {
+        unreachable!("notification test does not query notification deliveries")
     }
 
     async fn insert_raw_market_event(

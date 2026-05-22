@@ -124,6 +124,13 @@ Initial cockpit views:
 - Signal history and notification delivery status.
 - Backtest summary: win rate, Wilson lower bound, coverage, drawdown, and last N trades.
 
+The frontend-facing API contract is maintained in
+`docs/web-cockpit-api-contract.md`. Backend handlers should preserve that
+contract even if internal realtime, storage, model, or notification structs
+change. The cockpit should prefer the bootstrap endpoint for first paint and
+the market WebSocket for live updates, then call focused REST endpoints for
+configuration writes and detail panels.
+
 ## Feishu Notifications
 
 Each market can have multiple webhook channels. The backend stores webhook

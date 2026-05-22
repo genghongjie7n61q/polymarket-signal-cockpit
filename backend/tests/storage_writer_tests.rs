@@ -1,7 +1,7 @@
 use std::{
     sync::{
-        atomic::{AtomicI64, AtomicU64, Ordering},
         Arc, Mutex,
+        atomic::{AtomicI64, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -10,9 +10,9 @@ use async_trait::async_trait;
 use polymarket_backend::storage::{
     BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
     NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
-    NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick, RuntimeEventRecord,
-    SignalRecord, SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository,
-    StorageWriter, TickRecord,
+    NewTick, NotificationChannelRecord, NotificationDeliveryRecord, RawMarketEventRecord,
+    ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageCommand,
+    StorageError, StorageRepository, StorageWriter, TickRecord,
 };
 use serde_json::json;
 use time::OffsetDateTime;
@@ -314,6 +314,15 @@ impl StorageRepository for FakeRepository {
     ) -> Result<Uuid, StorageError> {
         self.maybe_fail().await?;
         Ok(Uuid::new_v4())
+    }
+
+    async fn latest_notification_deliveries(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<NotificationDeliveryRecord>, StorageError> {
+        self.maybe_fail().await?;
+        Ok(Vec::new())
     }
 
     async fn insert_runtime_event(

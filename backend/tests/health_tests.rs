@@ -1,4 +1,4 @@
-use axum::body::{to_bytes, Body};
+use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use polymarket_backend::{
     config::AppConfig,
@@ -14,12 +14,13 @@ use polymarket_backend::{
     storage::{
         BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
         NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
-        NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick,
-        RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageCommand, StorageError,
-        StorageRepository, StorageWriter, StorageWriterRuntime, TickRecord,
+        NewSignal, NewTick, NotificationChannelRecord, NotificationDeliveryRecord,
+        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord,
+        StorageCommand, StorageError, StorageRepository, StorageWriter, StorageWriterRuntime,
+        TickRecord,
     },
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -278,6 +279,14 @@ impl StorageRepository for HealthRepository {
         _delivery: &NewNotificationDelivery,
     ) -> Result<Uuid, StorageError> {
         unreachable!("health test does not insert notifications")
+    }
+
+    async fn latest_notification_deliveries(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<NotificationDeliveryRecord>, StorageError> {
+        unreachable!("health test does not query notification deliveries")
     }
 
     async fn insert_runtime_event(

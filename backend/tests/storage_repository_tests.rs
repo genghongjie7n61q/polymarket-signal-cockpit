@@ -2,9 +2,9 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     realtime::MarketKey,
     storage::{
-        connect_pool, run_migrations, NewBacktestRun, NewModelAssignment, NewNotificationChannel,
-        NewNotificationDelivery, NewRawMarketEvent, NewSignal, NewTick, PgPoolOptionsConfig,
-        PostgresStorage, StorageRepository,
+        NewBacktestRun, NewModelAssignment, NewNotificationChannel, NewNotificationDelivery,
+        NewRawMarketEvent, NewSignal, NewTick, NotificationDeliveryRecord, PgPoolOptionsConfig,
+        PostgresStorage, StorageRepository, connect_pool, run_migrations,
     },
 };
 use serde_json::json;
@@ -333,6 +333,59 @@ async fn repository_inserts_notification_delivery_idempotently() {
 }
 
 #[tokio::test]
+async fn repository_queries_latest_notification_deliveries_by_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    let signal = storage
+        .insert_signal(&NewSignal {
+            market_window_id: ctx.window_id,
+            model_version_id: ctx.model_version_id,
+            signal_type: "actionable_alert".to_string(),
+            side: Some("Up".to_string()),
+            confidence: Some(BigDecimal::from(87) / BigDecimal::from(100)),
+            limit_price: Some(BigDecimal::from(52) / BigDecimal::from(100)),
+            suggested_size: Some(BigDecimal::from(1)),
+            ttl_ms: Some(15_000),
+            reason: "delivery status query".to_string(),
+            features: json!({"threshold_bps": 4}),
+            input_snapshot_hash: format!("delivery-status-{}", ctx.suffix),
+        })
+        .await
+        .expect("signal insert");
+
+    storage
+        .insert_notification_delivery(&NewNotificationDelivery {
+            signal_id: signal.id,
+            channel_id: ctx.channel_id,
+            dedupe_key: format!("latest-delivery-{}", ctx.suffix),
+            status: "sent".to_string(),
+            attempt_count: 1,
+            response_summary: Some("ok".to_string()),
+        })
+        .await
+        .expect("delivery insert");
+
+    let deliveries: Vec<NotificationDeliveryRecord> = storage
+        .latest_notification_deliveries(&ctx.market_key, 20)
+        .await
+        .expect("latest notification deliveries");
+
+    assert_eq!(deliveries.len(), 1);
+    assert_eq!(deliveries[0].market_key, ctx.market_key);
+    assert_eq!(deliveries[0].signal_id, signal.id);
+    assert_eq!(deliveries[0].channel_id, ctx.channel_id);
+    assert_eq!(deliveries[0].channel_type, "feishu");
+    assert!(deliveries[0].channel_name.starts_with("test-"));
+    assert_eq!(deliveries[0].status, "sent");
+    assert_eq!(deliveries[0].attempt_count, 1);
+    assert_eq!(deliveries[0].response_summary.as_deref(), Some("ok"));
+    assert!(deliveries[0].updated_at >= deliveries[0].created_at);
+
+    ctx.cleanup().await;
+}
+
+#[tokio::test]
 async fn repository_queries_replay_ticks_by_market_window() {
     let ctx = TestContext::create().await;
 
@@ -371,9 +424,11 @@ async fn repository_queries_replay_ticks_by_market_window() {
         .expect("replay query");
 
     assert_eq!(replay.len(), 3);
-    assert!(replay
-        .windows(2)
-        .all(|pair| pair[0].source_ts <= pair[1].source_ts));
+    assert!(
+        replay
+            .windows(2)
+            .all(|pair| pair[0].source_ts <= pair[1].source_ts)
+    );
 
     ctx.cleanup().await;
 }

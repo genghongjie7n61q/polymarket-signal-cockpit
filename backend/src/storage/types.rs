@@ -232,6 +232,21 @@ pub struct NewNotificationDelivery {
     pub response_summary: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, FromRow)]
+pub struct NotificationDeliveryRecord {
+    pub id: Uuid,
+    pub market_key: String,
+    pub signal_id: Uuid,
+    pub channel_id: Uuid,
+    pub channel_type: String,
+    pub channel_name: String,
+    pub status: String,
+    pub attempt_count: i32,
+    pub response_summary: Option<String>,
+    pub created_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReplayTick {
     pub market_key: String,
