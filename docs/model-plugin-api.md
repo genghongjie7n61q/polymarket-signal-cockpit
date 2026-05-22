@@ -63,6 +63,17 @@ or:
 
 WEB-8 includes `baseline_direction@0.1.0` for BTC 5m and ETH 15m platform validation. It is not an optimized trading strategy. It waits until the decision offset, compares the latest tick to the first candle open, applies a bps threshold, chooses Up/Down, uses the matching Polymarket side price, and sizes with platform fractional Kelly.
 
+The built-in baseline reads these optional `assignment.parameters` values on every decision:
+
+- `threshold_bps`: positive decimal, default `4`.
+- `decision_offset_ms`: non-negative integer, default `180000`.
+- `ttl_ms`: positive integer, default `15000`.
+- `kelly_fraction`: decimal in `(0, 1]`, default `0.5`.
+- `min_size`: positive decimal, default `0.5`.
+- `max_size`: positive decimal, default `1.5`, capped by `portfolio.max_signal_size`.
+
+Invalid parameters return `NO_TRADE` with an `invalid assignment parameters: ...` reason instead of panicking.
+
 `SizingEngine` uses binary-contract fractional Kelly:
 
 ```text
