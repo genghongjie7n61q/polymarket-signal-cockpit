@@ -1,6 +1,6 @@
 use axum::{
-    body::{to_bytes, Body},
-    http::{header::CONTENT_TYPE, Request, StatusCode},
+    body::{Body, to_bytes},
+    http::{Request, StatusCode, header::CONTENT_TYPE},
 };
 use polymarket_backend::{
     config::AppConfig,
@@ -15,12 +15,12 @@ use polymarket_backend::{
     storage::{
         BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
         NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
-        NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick,
-        RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository,
-        TickRecord,
+        NewSignal, NewTick, NotificationChannelRecord, NotificationDeliveryRecord,
+        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord,
+        StorageError, StorageRepository, TickRecord,
     },
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
@@ -555,6 +555,109 @@ async fn backtests_api_returns_latest_runs_for_market_and_model() {
     assert_eq!(json["runs"][0]["metrics"]["eligible"], false);
 }
 
+#[tokio::test]
+async fn cockpit_bootstrap_api_returns_frontend_contract_without_secrets() {
+    let signal = signal_record("btc5m", "Up", "positive edge");
+    let channel = notification_channel("btc5m", "primary", true);
+    let repository = ApiRepository {
+        candles: vec![CandleRecord {
+            market_key: "btc5m".to_string(),
+            start_ts: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(60),
+            open: "100.0".parse().unwrap(),
+            high: "103.0".parse().unwrap(),
+            low: "99.0".parse().unwrap(),
+            close: "102.5".parse().unwrap(),
+            volume: "4.2".parse().unwrap(),
+        }],
+        signals: vec![signal.clone()],
+        backtest_runs: vec![backtest_run("btc5m", "baseline_direction", "0.1.0")],
+        deliveries: vec![notification_delivery("btc5m", signal.id, &channel, "sent")],
+        ..Default::default()
+    };
+    repository
+        .assignments
+        .lock()
+        .expect("assignments lock")
+        .push(model_assignment("btc5m", "baseline", "0.1.0"));
+    repository
+        .channels
+        .lock()
+        .expect("channels lock")
+        .push(channel);
+    let app = build_test_app_with_repository(repository).await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/cockpit/bootstrap")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["markets"].as_array().expect("markets").len(), 2);
+    let btc = json["markets"]
+        .as_array()
+        .expect("markets")
+        .iter()
+        .find(|market| market["summary"]["market_key"] == "btc5m")
+        .expect("btc market should be present");
+    assert_eq!(btc["summary"]["symbol"], "BTC-USD");
+    assert_eq!(btc["recent_candles"].as_array().expect("candles").len(), 1);
+    assert_eq!(btc["active_model"]["model_key"], "baseline");
+    assert_eq!(btc["latest_signal"]["side"], "Up");
+    assert_eq!(btc["latest_actionable_alert"]["side"], "Up");
+    assert_eq!(btc["latest_backtest"]["model_key"], "baseline_direction");
+    assert_eq!(btc["notification_channels"][0]["webhook_url"], Value::Null);
+    assert_eq!(btc["notification_deliveries"][0]["status"], "sent");
+    assert!(json["runtime"].is_object());
+    assert!(!json.to_string().contains("open-apis/bot/v2/hook/abcd"));
+}
+
+#[tokio::test]
+async fn notification_deliveries_api_returns_masked_status_for_market() {
+    let signal = signal_record("btc5m", "Down", "delivery status");
+    let channel = notification_channel("btc5m", "primary", true);
+    let app = build_test_app_with_repository(ApiRepository {
+        deliveries: vec![notification_delivery("btc5m", signal.id, &channel, "sent")],
+        ..Default::default()
+    })
+    .await;
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/notifications/deliveries?market_key=btc5m&limit=20")
+                .body(Body::empty())
+                .expect("request should build"),
+        )
+        .await
+        .expect("request should be handled");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body should be readable");
+    let json: Value = serde_json::from_slice(&body).expect("response should be json");
+
+    assert_eq!(json["market_key"], "btc5m");
+    assert_eq!(json["deliveries"].as_array().expect("deliveries").len(), 1);
+    assert_eq!(json["deliveries"][0]["channel_name"], "primary");
+    assert_eq!(json["deliveries"][0]["channel_type"], "feishu");
+    assert_eq!(json["deliveries"][0]["status"], "sent");
+    assert_eq!(json["deliveries"][0]["attempt_count"], 1);
+    assert!(!json.to_string().contains("open-apis/bot/v2/hook/abcd"));
+}
+
 async fn build_test_app_with_tick() -> axum::Router {
     let config = AppConfig::from_env_map([
         ("POLY_ENV".to_string(), "local".to_string()),
@@ -642,6 +745,7 @@ struct ApiRepository {
     candles: Vec<CandleRecord>,
     signals: Vec<SignalWithMarketRecord>,
     backtest_runs: Vec<BacktestRunRecord>,
+    deliveries: Vec<NotificationDeliveryRecord>,
     assignments: Arc<Mutex<Vec<ModelAssignmentRecord>>>,
     channels: Arc<Mutex<Vec<NotificationChannelRecord>>>,
 }
@@ -693,6 +797,20 @@ impl StorageRepository for ApiRepository {
         _delivery: &NewNotificationDelivery,
     ) -> Result<Uuid, StorageError> {
         unreachable!("api route test does not insert notifications")
+    }
+
+    async fn latest_notification_deliveries(
+        &self,
+        market_key: &str,
+        limit: i64,
+    ) -> Result<Vec<NotificationDeliveryRecord>, StorageError> {
+        Ok(self
+            .deliveries
+            .iter()
+            .filter(|delivery| delivery.market_key == market_key)
+            .take(limit.clamp(1, 200) as usize)
+            .cloned()
+            .collect())
     }
 
     async fn insert_runtime_event(
@@ -843,6 +961,46 @@ fn notification_channel(market_key: &str, name: &str, enabled: bool) -> Notifica
         webhook_url: "https://open.feishu.cn/open-apis/bot/v2/hook/abcd".to_string(),
         enabled,
         created_at: OffsetDateTime::UNIX_EPOCH,
+    }
+}
+
+fn notification_delivery(
+    market_key: &str,
+    signal_id: Uuid,
+    channel: &NotificationChannelRecord,
+    status: &str,
+) -> NotificationDeliveryRecord {
+    NotificationDeliveryRecord {
+        id: Uuid::new_v4(),
+        market_key: market_key.to_string(),
+        signal_id,
+        channel_id: channel.id,
+        channel_type: channel.channel_type.clone(),
+        channel_name: channel.name.clone(),
+        status: status.to_string(),
+        attempt_count: 1,
+        response_summary: Some("ok".to_string()),
+        created_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(130),
+        updated_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(131),
+    }
+}
+
+fn signal_record(market_key: &str, side: &str, reason: &str) -> SignalWithMarketRecord {
+    SignalWithMarketRecord {
+        id: Uuid::new_v4(),
+        market_key: market_key.to_string(),
+        market_window_id: Uuid::new_v4(),
+        model_version_id: Uuid::new_v4(),
+        signal_type: "actionable_alert".to_string(),
+        side: Some(side.to_string()),
+        confidence: Some("0.82".parse().unwrap()),
+        limit_price: Some("0.51".parse().unwrap()),
+        suggested_size: Some("2.5".parse().unwrap()),
+        ttl_ms: Some(15_000),
+        reason: reason.to_string(),
+        features: serde_json::json!({"edge_bps": 6}),
+        input_snapshot_hash: format!("snapshot-{market_key}-{side}"),
+        created_at: OffsetDateTime::UNIX_EPOCH + time::Duration::seconds(90),
     }
 }
 

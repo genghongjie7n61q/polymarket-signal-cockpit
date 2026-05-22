@@ -7,12 +7,31 @@ use crate::realtime::{
 };
 use crate::storage::{
     BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NotificationChannelRecord,
-    SignalWithMarketRecord, StorageWriterSnapshot,
+    NotificationDeliveryRecord, SignalWithMarketRecord, StorageWriterSnapshot,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MarketsResponseDto {
     pub markets: Vec<MarketSummaryDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CockpitBootstrapDto {
+    pub generated_at: time::OffsetDateTime,
+    pub markets: Vec<CockpitMarketDto>,
+    pub runtime: RuntimeHealthDto,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CockpitMarketDto {
+    pub summary: MarketSummaryDto,
+    pub recent_candles: Vec<CandleDto>,
+    pub active_model: Option<ModelAssignmentDto>,
+    pub latest_signal: Option<SignalDto>,
+    pub latest_actionable_alert: Option<SignalDto>,
+    pub latest_backtest: Option<BacktestRunDto>,
+    pub notification_channels: Vec<NotificationChannelDto>,
+    pub notification_deliveries: Vec<NotificationDeliveryDto>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -134,6 +153,27 @@ pub struct NotificationChannelDto {
     pub webhook_url_masked: String,
     pub enabled: bool,
     pub created_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NotificationDeliveriesResponseDto {
+    pub market_key: String,
+    pub deliveries: Vec<NotificationDeliveryDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct NotificationDeliveryDto {
+    pub id: uuid::Uuid,
+    pub market_key: String,
+    pub signal_id: uuid::Uuid,
+    pub channel_id: uuid::Uuid,
+    pub channel_type: String,
+    pub channel_name: String,
+    pub status: String,
+    pub attempt_count: i32,
+    pub response_summary: Option<String>,
+    pub created_at: time::OffsetDateTime,
+    pub updated_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -280,6 +320,24 @@ impl NotificationChannelDto {
             webhook_url_masked: mask_webhook_url(&record.webhook_url),
             enabled: record.enabled,
             created_at: record.created_at,
+        }
+    }
+}
+
+impl NotificationDeliveryDto {
+    pub fn from_record(record: NotificationDeliveryRecord) -> Self {
+        Self {
+            id: record.id,
+            market_key: record.market_key,
+            signal_id: record.signal_id,
+            channel_id: record.channel_id,
+            channel_type: record.channel_type,
+            channel_name: record.channel_name,
+            status: record.status,
+            attempt_count: record.attempt_count,
+            response_summary: record.response_summary,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
         }
     }
 }

@@ -8,8 +8,9 @@ use crate::{
     storage::{
         BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
         NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
-        NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick,
-        RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageError, TickRecord,
+        NewSignal, NewTick, NotificationChannelRecord, NotificationDeliveryRecord,
+        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord,
+        StorageError, TickRecord,
     },
 };
 
@@ -40,6 +41,11 @@ pub trait StorageRepository: Send + Sync {
         &self,
         delivery: &NewNotificationDelivery,
     ) -> Result<Uuid, StorageError>;
+    async fn latest_notification_deliveries(
+        &self,
+        market_key: &str,
+        limit: i64,
+    ) -> Result<Vec<NotificationDeliveryRecord>, StorageError>;
     async fn insert_runtime_event(
         &self,
         event: &NewRuntimeEvent,
@@ -288,6 +294,44 @@ impl StorageRepository for PostgresStorage {
         .await?;
 
         Ok(id)
+    }
+
+    async fn latest_notification_deliveries(
+        &self,
+        market_key: &str,
+        limit: i64,
+    ) -> Result<Vec<NotificationDeliveryRecord>, StorageError> {
+        let limit = limit.clamp(1, 200);
+        let deliveries = sqlx::query_as::<_, NotificationDeliveryRecord>(
+            r#"
+            SELECT
+                nd.id,
+                m.market_key,
+                nd.signal_id,
+                nd.channel_id,
+                nc.channel_type,
+                nc.name AS channel_name,
+                nd.status,
+                nd.attempt_count,
+                nd.response_summary,
+                nd.created_at,
+                nd.updated_at
+            FROM notification_deliveries nd
+            JOIN notification_channels nc ON nc.id = nd.channel_id
+            JOIN signals s ON s.id = nd.signal_id
+            JOIN market_windows mw ON mw.id = s.market_window_id
+            JOIN markets m ON m.id = mw.market_id
+            WHERE m.market_key = $1
+            ORDER BY nd.updated_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(market_key)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(deliveries)
     }
 
     async fn insert_runtime_event(

@@ -1,22 +1,25 @@
 use axum::{
+    Json, Router,
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post},
-    Json, Router,
 };
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use time::OffsetDateTime;
 
 use crate::{
     api::dto::{
-        BacktestRunDto, BacktestsResponseDto, CandleDto, CandlesResponseDto,
-        FeishuDryRunCardSummaryDto, FeishuDryRunDeliveryDto, FeishuDryRunResponseDto,
-        MarketStateDto, MarketSummaryDto, MarketTickDto, MarketsResponseDto, ModelAssignmentDto,
-        ModelAssignmentsResponseDto, NotificationChannelDto, NotificationChannelsResponseDto,
-        PolymarketSnapshotDto, RuntimeHealthDto, SignalDto, SignalsResponseDto,
+        BacktestRunDto, BacktestsResponseDto, CandleDto, CandlesResponseDto, CockpitBootstrapDto,
+        CockpitMarketDto, FeishuDryRunCardSummaryDto, FeishuDryRunDeliveryDto,
+        FeishuDryRunResponseDto, MarketStateDto, MarketSummaryDto, MarketTickDto,
+        MarketsResponseDto, ModelAssignmentDto, ModelAssignmentsResponseDto,
+        NotificationChannelDto, NotificationChannelsResponseDto, NotificationDeliveriesResponseDto,
+        NotificationDeliveryDto, PolymarketSnapshotDto, RuntimeHealthDto, SignalDto,
+        SignalsResponseDto,
     },
     api::ws::markets_ws,
-    notification::{render_feishu_card, FeishuCardInput, NotificationChannelView},
+    notification::{FeishuCardInput, NotificationChannelView, render_feishu_card},
     realtime::{LiveMarketState, MarketKey},
     router::AppState,
     storage::{
@@ -27,11 +30,16 @@ use crate::{
 
 pub fn api_router() -> Router<AppState> {
     Router::new()
+        .route("/cockpit/bootstrap", get(cockpit_bootstrap))
         .route("/markets", get(list_markets))
         .route("/markets/{market_key}/state", get(market_state))
         .route("/markets/{market_key}/candles", get(market_candles))
         .route("/signals", get(latest_signals))
         .route("/backtests", get(latest_backtests))
+        .route(
+            "/notifications/deliveries",
+            get(latest_notification_deliveries),
+        )
         .route("/notifications/feishu/dry-run", post(feishu_dry_run))
         .route("/ws/markets", get(markets_ws))
         .route("/config/model-assignments", get(list_model_assignments))
@@ -68,6 +76,12 @@ struct SetModelAssignmentRequest {
 #[derive(Debug, Clone, Deserialize)]
 struct NotificationChannelsQuery {
     market_key: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct NotificationDeliveriesQuery {
+    market_key: String,
+    limit: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -152,20 +166,112 @@ async fn market_state(
 }
 
 async fn runtime_health(State(state): State<AppState>) -> Json<RuntimeHealthDto> {
-    Json(RuntimeHealthDto {
-        storage_writer: state
-            .storage_writer
-            .as_ref()
-            .map(|writer| writer.snapshot()),
-        realtime: state
-            .realtime
-            .as_ref()
-            .map(|runtime| runtime.snapshot(OffsetDateTime::now_utc())),
-        notification: state
-            .notification
-            .as_ref()
-            .map(|runtime| runtime.snapshot()),
-    })
+    Json(runtime_health_dto(&state))
+}
+
+async fn cockpit_bootstrap(
+    State(state): State<AppState>,
+) -> Result<Json<CockpitBootstrapDto>, StatusCode> {
+    let now = OffsetDateTime::now_utc();
+    let markets = supported_market_keys(&state);
+    let summaries = market_summary_map(&state, &markets, now);
+    let assignments = match state.storage.as_ref() {
+        Some(storage) => storage
+            .list_model_assignments()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        None => Vec::new(),
+    };
+
+    let mut cockpit_markets = Vec::with_capacity(markets.len());
+    for market_key in markets {
+        let summary = summaries
+            .get(market_key.as_str())
+            .cloned()
+            .unwrap_or_else(|| market_summary(market_key, None, None));
+        let active_model = assignments
+            .iter()
+            .find(|assignment| assignment.market_key == market_key.as_str())
+            .cloned();
+        let recent_candles = match state.storage.as_ref() {
+            Some(storage) => storage
+                .recent_candles(market_key.as_str(), 60)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            None => Vec::new(),
+        };
+        let signals = match state.storage.as_ref() {
+            Some(storage) => storage
+                .latest_signals(market_key.as_str(), 20)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            None => Vec::new(),
+        };
+        let backtest_runs = match state.storage.as_ref() {
+            Some(storage) => {
+                let model_key = active_model.as_ref().map(|model| model.model_key.as_str());
+                let mut runs = storage
+                    .latest_backtest_runs(Some(market_key.as_str()), model_key, 1)
+                    .await
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                if runs.is_empty() && model_key.is_some() {
+                    runs = storage
+                        .latest_backtest_runs(Some(market_key.as_str()), None, 1)
+                        .await
+                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                }
+                runs
+            }
+            None => Vec::new(),
+        };
+        let channels = match state.storage.as_ref() {
+            Some(storage) => storage
+                .list_notification_channels(market_key.as_str())
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            None => Vec::new(),
+        };
+        let deliveries = match state.storage.as_ref() {
+            Some(storage) => storage
+                .latest_notification_deliveries(market_key.as_str(), 20)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+            None => Vec::new(),
+        };
+
+        cockpit_markets.push(CockpitMarketDto {
+            summary,
+            recent_candles: recent_candles
+                .into_iter()
+                .map(CandleDto::from_record)
+                .collect(),
+            active_model: active_model.map(ModelAssignmentDto::from_record),
+            latest_signal: signals.first().cloned().map(SignalDto::from_record),
+            latest_actionable_alert: signals
+                .iter()
+                .find(|signal| signal.signal_type == "actionable_alert")
+                .cloned()
+                .map(SignalDto::from_record),
+            latest_backtest: backtest_runs
+                .into_iter()
+                .next()
+                .map(BacktestRunDto::from_record),
+            notification_channels: channels
+                .into_iter()
+                .map(NotificationChannelDto::from_record)
+                .collect(),
+            notification_deliveries: deliveries
+                .into_iter()
+                .map(NotificationDeliveryDto::from_record)
+                .collect(),
+        });
+    }
+
+    Ok(Json(CockpitBootstrapDto {
+        generated_at: now,
+        markets: cockpit_markets,
+        runtime: runtime_health_dto(&state),
+    }))
 }
 
 async fn market_candles(
@@ -309,6 +415,29 @@ async fn list_notification_channels(
     }))
 }
 
+async fn latest_notification_deliveries(
+    State(state): State<AppState>,
+    Query(query): Query<NotificationDeliveriesQuery>,
+) -> Result<Json<NotificationDeliveriesResponseDto>, StatusCode> {
+    let market_key = supported_market(&state, &query.market_key)?;
+    let limit = query.limit.unwrap_or(20).clamp(1, 200);
+    let deliveries = match state.storage.as_ref() {
+        Some(storage) => storage
+            .latest_notification_deliveries(market_key.as_str(), limit)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        None => Vec::new(),
+    };
+
+    Ok(Json(NotificationDeliveriesResponseDto {
+        market_key: market_key.as_str().to_string(),
+        deliveries: deliveries
+            .into_iter()
+            .map(NotificationDeliveryDto::from_record)
+            .collect(),
+    }))
+}
+
 async fn upsert_notification_channel(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -424,6 +553,67 @@ fn market_summary(
             .and_then(|market| market.latest_snapshot.as_ref())
             .map(PolymarketSnapshotDto::from_snapshot),
     }
+}
+
+fn market_summary_map(
+    state: &AppState,
+    markets: &[MarketKey],
+    now: OffsetDateTime,
+) -> BTreeMap<String, MarketSummaryDto> {
+    let runtime_state = state
+        .realtime
+        .as_ref()
+        .map(|runtime| runtime.state_snapshot());
+    let source_status = state
+        .realtime
+        .as_ref()
+        .map(|runtime| runtime.source_status_at(now))
+        .unwrap_or_default();
+
+    markets
+        .iter()
+        .map(|market_key| {
+            let live = runtime_state
+                .as_ref()
+                .and_then(|snapshot| snapshot.markets.get(market_key));
+            (
+                market_key.as_str().to_string(),
+                market_summary(
+                    *market_key,
+                    live,
+                    source_status.get(default_source(*market_key)),
+                ),
+            )
+        })
+        .collect()
+}
+
+fn runtime_health_dto(state: &AppState) -> RuntimeHealthDto {
+    RuntimeHealthDto {
+        storage_writer: state
+            .storage_writer
+            .as_ref()
+            .map(|writer| writer.snapshot()),
+        realtime: state
+            .realtime
+            .as_ref()
+            .map(|runtime| runtime.snapshot(OffsetDateTime::now_utc())),
+        notification: state
+            .notification
+            .as_ref()
+            .map(|runtime| runtime.snapshot()),
+    }
+}
+
+fn supported_market_keys(state: &AppState) -> Vec<MarketKey> {
+    let mut market_keys = state
+        .config
+        .supported_markets
+        .iter()
+        .filter_map(|market| market.parse::<MarketKey>().ok())
+        .collect::<Vec<_>>();
+    market_keys.sort_by_key(|market| market.as_str());
+    market_keys
 }
 
 fn market_state_dto(market_key: MarketKey, live: Option<&LiveMarketState>) -> MarketStateDto {

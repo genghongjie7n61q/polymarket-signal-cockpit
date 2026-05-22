@@ -25,7 +25,7 @@ Write the cockpit first-paint, WebSocket, model config, backtest, signal, notifi
 
 Add a short API-contract note to `docs/architecture.md` pointing future Web Cockpit workers to `docs/web-cockpit-api-contract.md`.
 
-- [ ] **Step 3: Commit contract docs**
+- [x] **Step 3: Commit contract docs**
 
 Run:
 
@@ -44,7 +44,7 @@ Expected: no whitespace errors and a docs-only commit.
 - Modify: `backend/src/storage/repository.rs`
 - Test: `backend/tests/storage_repository_tests.rs`
 
-- [ ] **Step 1: Write failing repository test**
+- [x] **Step 1: Write failing repository test**
 
 Add `repository_queries_latest_notification_deliveries_by_market` to `backend/tests/storage_repository_tests.rs`.
 
@@ -74,7 +74,7 @@ assert_eq!(deliveries[0].attempt_count, 1);
 assert_eq!(deliveries[0].response_summary.as_deref(), Some("ok"));
 ```
 
-- [ ] **Step 2: Verify RED on dev-2**
+- [x] **Step 2: Verify RED on dev-2**
 
 Run on dev-2 from the issue worktree copy:
 
@@ -92,7 +92,7 @@ podman run --rm --network host \
 
 Expected before implementation: compile failure because `latest_notification_deliveries` and `NotificationDeliveryRecord` do not exist.
 
-- [ ] **Step 3: Implement storage type and query**
+- [x] **Step 3: Implement storage type and query**
 
 Add `NotificationDeliveryRecord` to `backend/src/storage/types.rs`:
 
@@ -125,7 +125,7 @@ async fn latest_notification_deliveries(
 
 Implement it in `PostgresStorage` with a join from `notification_deliveries` to `signals`, `market_windows`, `markets`, and `notification_channels`, ordered by `nd.updated_at DESC`, limit clamped to `1..=200`.
 
-- [ ] **Step 4: Verify GREEN on dev-2**
+- [x] **Step 4: Verify GREEN on dev-2**
 
 Run the same targeted repository test. Expected: PASS.
 
@@ -136,7 +136,7 @@ Run the same targeted repository test. Expected: PASS.
 - Modify: `backend/src/api/routes.rs`
 - Test: `backend/tests/api_routes_tests.rs`
 
-- [ ] **Step 1: Write failing route tests**
+- [x] **Step 1: Write failing route tests**
 
 Add `cockpit_bootstrap_api_returns_frontend_contract_without_secrets`.
 
@@ -185,7 +185,7 @@ GET /api/notifications/deliveries?market_key=btc5m&limit=20
 
 Assert response status `200`, `market_key = "btc5m"`, one delivery, `channel_name = "primary"`, `status = "sent"`, and no webhook URL appears in the response body.
 
-- [ ] **Step 2: Verify RED on dev-2**
+- [x] **Step 2: Verify RED on dev-2**
 
 Run:
 
@@ -203,7 +203,7 @@ podman run --rm --network host \
 
 Expected before implementation: route returns `404` or compile fails because DTO methods are missing.
 
-- [ ] **Step 3: Implement DTOs**
+- [x] **Step 3: Implement DTOs**
 
 Add DTOs:
 
@@ -245,7 +245,7 @@ pub struct NotificationDeliveryDto {
 }
 ```
 
-- [ ] **Step 4: Implement routes**
+- [x] **Step 4: Implement routes**
 
 Add routes:
 
@@ -264,7 +264,7 @@ Bootstrap behavior:
 - choose latest backtest from `latest_backtest_runs(Some(market), active_model.model_key, 1)`, falling back to latest any model when no active model exists,
 - include notification channels and latest deliveries.
 
-- [ ] **Step 5: Verify GREEN on dev-2**
+- [x] **Step 5: Verify GREEN on dev-2**
 
 Run targeted API tests. Expected: PASS.
 
@@ -274,7 +274,7 @@ Run targeted API tests. Expected: PASS.
 - Create: `docs/dev-2-web-56-validation.md`
 - Modify: `docs/superpowers/plans/2026-05-22-web-56-web-cockpit-api-contract.md`
 
-- [ ] **Step 1: Full backend tests on dev-2**
+- [x] **Step 1: Full backend tests on dev-2**
 
 Run:
 
@@ -292,7 +292,7 @@ podman run --rm --network host \
 
 Expected: all backend tests pass.
 
-- [ ] **Step 2: dev-2 service validation**
+- [x] **Step 2: dev-2 service validation**
 
 Deploy the branch to dev-2 and verify:
 
@@ -307,7 +307,7 @@ Expected:
 - bootstrap returns both supported markets,
 - delivery endpoint returns no webhook URL.
 
-- [ ] **Step 3: Record validation**
+- [x] **Step 3: Record validation**
 
 Write `docs/dev-2-web-56-validation.md` with:
 - branch and commit,

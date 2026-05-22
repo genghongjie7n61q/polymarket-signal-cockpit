@@ -4,9 +4,9 @@ use polymarket_backend::{
     storage::{
         BacktestRunRecord, CandleRecord, ModelAssignmentRecord, NewBacktestRun, NewModelAssignment,
         NewNotificationChannel, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent,
-        NewSignal, NewTick, NotificationChannelRecord, RawMarketEventRecord, ReplayTick,
-        RuntimeEventRecord, SignalRecord, SignalWithMarketRecord, StorageError, StorageRepository,
-        StorageWriter, TickRecord,
+        NewSignal, NewTick, NotificationChannelRecord, NotificationDeliveryRecord,
+        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord,
+        StorageError, StorageRepository, StorageWriter, TickRecord,
     },
 };
 use std::{
@@ -114,6 +114,14 @@ impl StorageRepository for CapturedRepository {
         _delivery: &NewNotificationDelivery,
     ) -> Result<Uuid, StorageError> {
         unreachable!("bridge test does not insert notifications")
+    }
+
+    async fn latest_notification_deliveries(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<NotificationDeliveryRecord>, StorageError> {
+        unreachable!("bridge test does not query notification deliveries")
     }
 
     async fn insert_runtime_event(
