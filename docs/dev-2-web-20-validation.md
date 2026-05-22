@@ -24,6 +24,9 @@ Post-review fix validation:
 - `cargo test -p polymarket-backend --test api_ws_tests --locked`: passed, 4 tests.
 - `cargo test -p polymarket-backend --locked`: passed.
 - WebSocket summary snapshots now use a compact realtime summary path that does not clone in-memory candle history.
+- Re-deployed the post-review fix to dev-2 and rechecked `http://192.168.103.157:8080/healthz`: `coinbase=fresh`, `polymarket=fresh`, `realtime.bus.accepted=296`, `storage_writer.written=261`, `storage_bridge.missing_market=0`.
+- Rechecked `ws://192.168.103.157:8080/api/ws/markets`: returned `101 Switching Protocols`, first frame `type=snapshot`, markets `btc5m` and `eth15m`, and no duplicate second frame within 150ms.
+- Dedicated review subagent re-review found no Critical or Important issues and allowed PR/merge candidacy.
 
 ## Runtime Deployment
 
