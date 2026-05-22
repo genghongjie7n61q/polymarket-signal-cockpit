@@ -95,7 +95,7 @@ Run the same `model_contract_tests`; expected: pass.
 - Modify: `backend/src/model/mod.rs`
 - Test: `backend/tests/model_sizing_tests.rs`
 
-- [ ] **Step 1: Write failing sizing tests**
+- [x] **Step 1: Write failing sizing tests**
 
 ```rust
 #[test]
@@ -117,11 +117,11 @@ fn fractional_kelly_returns_none_when_edge_is_not_positive() {
 }
 ```
 
-- [ ] **Step 2: Run RED on dev-2**
+- [x] **Step 2: Run RED on dev-2**
 
 Expected: compile failure because `SizingEngine` is missing.
 
-- [ ] **Step 3: Implement sizing**
+- [x] **Step 3: Implement sizing**
 
 Use binary contract Kelly fraction:
 
@@ -132,7 +132,7 @@ size = bankroll * raw_fraction * fraction
 
 Return `None` for invalid prices, probabilities outside `[0,1]`, or non-positive edge. Clamp to `[min_size, max_size]`, but return `None` if the clamped value is below minimum before clamping.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run `model_sizing_tests`; expected: pass.
 
