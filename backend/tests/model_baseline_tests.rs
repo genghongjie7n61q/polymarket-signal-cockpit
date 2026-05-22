@@ -49,7 +49,10 @@ fn baseline_returns_up_candidate_with_ttl_limit_price_size_and_features() {
     assert_eq!(decision.limit_price, Some(bd("0.50")));
     assert_eq!(decision.suggested_size, Some(bd("1.5")));
     assert_eq!(decision.ttl_ms(), Some(15_000));
-    assert_eq!(decision.features()["model_key"], json!("baseline_direction"));
+    assert_eq!(
+        decision.features()["model_key"],
+        json!("baseline_direction")
+    );
     assert_eq!(decision.features()["model_version"], json!("0.1.0"));
     assert_eq!(decision.features()["market_key"], json!("btc5m"));
     assert_eq!(decision.features()["return_bps"], json!("1000"));

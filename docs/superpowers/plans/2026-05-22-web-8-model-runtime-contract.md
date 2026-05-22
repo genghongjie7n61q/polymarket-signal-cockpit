@@ -273,7 +273,7 @@ Run `model_runtime_tests`; expected: pass.
 - Create: `docs/dev-2-web-8-validation.md`
 - Test: full backend suite on dev-2
 
-- [ ] **Step 1: Keep model API one page**
+- [x] **Step 1: Keep model API one page**
 
 Update `docs/model-plugin-api.md` to match implemented field names, emphasizing:
 - Deterministic model execution.
@@ -281,7 +281,7 @@ Update `docs/model-plugin-api.md` to match implemented field names, emphasizing:
 - No dependency on Feishu, HTTP handlers, or database tables.
 - Sizing is platform-provided.
 
-- [ ] **Step 2: Run full verification on dev-2**
+- [x] **Step 2: Run full verification on dev-2**
 
 ```bash
 rsync -az --exclude .git --exclude target --exclude .env --exclude .worktrees ./ dev-2:/opt/polymarket-signal-cockpit/

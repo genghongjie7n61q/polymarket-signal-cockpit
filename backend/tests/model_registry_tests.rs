@@ -1,4 +1,6 @@
-use polymarket_backend::model::{ModelRegistry, BASELINE_DIRECTION_KEY, BASELINE_DIRECTION_VERSION};
+use polymarket_backend::model::{
+    ModelRegistry, BASELINE_DIRECTION_KEY, BASELINE_DIRECTION_VERSION,
+};
 
 #[test]
 fn built_in_registry_resolves_baseline_assignment() {
@@ -24,6 +26,9 @@ fn registry_lists_registered_versions_in_stable_order() {
 
     assert_eq!(
         registry.model_versions(),
-        vec![(BASELINE_DIRECTION_KEY.to_string(), BASELINE_DIRECTION_VERSION.to_string())]
+        vec![(
+            BASELINE_DIRECTION_KEY.to_string(),
+            BASELINE_DIRECTION_VERSION.to_string()
+        )]
     );
 }

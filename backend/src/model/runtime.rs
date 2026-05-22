@@ -1,6 +1,4 @@
-use std::{
-    sync::{Arc, RwLock},
-};
+use std::sync::{Arc, RwLock};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -43,7 +41,10 @@ impl ModelRuntime {
         let task = tokio::spawn(async move {
             while let Some(context) = rx.recv().await {
                 let decision = registry
-                    .get(&context.assignment.model_key, &context.assignment.model_version)
+                    .get(
+                        &context.assignment.model_key,
+                        &context.assignment.model_version,
+                    )
                     .map(|model| model.decide(&context));
 
                 let mut metrics = worker_metrics
