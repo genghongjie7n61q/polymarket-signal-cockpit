@@ -8,9 +8,9 @@ use std::{
 
 use async_trait::async_trait;
 use polymarket_backend::storage::{
-    NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-    RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageCommand,
-    StorageError, StorageRepository, StorageWriter, TickRecord,
+    CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
+    RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, SignalWithMarketRecord,
+    StorageCommand, StorageError, StorageRepository, StorageWriter, TickRecord,
 };
 use serde_json::json;
 use time::OffsetDateTime;
@@ -266,6 +266,24 @@ impl StorageRepository for FakeRepository {
         _market_key: &str,
         _window_start: OffsetDateTime,
     ) -> Result<Vec<ReplayTick>, StorageError> {
+        self.maybe_fail().await?;
+        Ok(Vec::new())
+    }
+
+    async fn recent_candles(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<CandleRecord>, StorageError> {
+        self.maybe_fail().await?;
+        Ok(Vec::new())
+    }
+
+    async fn latest_signals(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<SignalWithMarketRecord>, StorageError> {
         self.maybe_fail().await?;
         Ok(Vec::new())
     }

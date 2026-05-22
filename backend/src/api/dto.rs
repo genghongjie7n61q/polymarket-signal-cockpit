@@ -3,7 +3,7 @@ use serde::Serialize;
 use crate::realtime::{
     CandleSnapshot, MarketTick, MarketWindowState, PolymarketSnapshot, RealtimeRuntimeSnapshot,
 };
-use crate::storage::StorageWriterSnapshot;
+use crate::storage::{CandleRecord, SignalWithMarketRecord, StorageWriterSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct MarketsResponseDto {
@@ -28,6 +28,45 @@ pub struct MarketStateDto {
     pub current_window: Option<MarketWindowState>,
     pub latest_snapshot: Option<PolymarketSnapshotDto>,
     pub recent_candles: Vec<CandleSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CandlesResponseDto {
+    pub market_key: String,
+    pub candles: Vec<CandleDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CandleDto {
+    pub start_ts: time::OffsetDateTime,
+    pub open: String,
+    pub high: String,
+    pub low: String,
+    pub close: String,
+    pub volume: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SignalsResponseDto {
+    pub market_key: String,
+    pub signals: Vec<SignalDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SignalDto {
+    pub id: uuid::Uuid,
+    pub market_window_id: uuid::Uuid,
+    pub model_version_id: uuid::Uuid,
+    pub signal_type: String,
+    pub side: Option<String>,
+    pub confidence: Option<String>,
+    pub limit_price: Option<String>,
+    pub suggested_size: Option<String>,
+    pub ttl_ms: Option<i32>,
+    pub reason: String,
+    pub features: serde_json::Value,
+    pub input_snapshot_hash: String,
+    pub created_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -80,6 +119,39 @@ impl PolymarketSnapshotDto {
             down_price: snapshot.down_price.as_ref().map(ToString::to_string),
             spread: snapshot.spread.as_ref().map(ToString::to_string),
             liquidity: snapshot.liquidity.as_ref().map(ToString::to_string),
+        }
+    }
+}
+
+impl CandleDto {
+    pub fn from_record(record: CandleRecord) -> Self {
+        Self {
+            start_ts: record.start_ts,
+            open: record.open.to_string(),
+            high: record.high.to_string(),
+            low: record.low.to_string(),
+            close: record.close.to_string(),
+            volume: record.volume.to_string(),
+        }
+    }
+}
+
+impl SignalDto {
+    pub fn from_record(record: SignalWithMarketRecord) -> Self {
+        Self {
+            id: record.id,
+            market_window_id: record.market_window_id,
+            model_version_id: record.model_version_id,
+            signal_type: record.signal_type,
+            side: record.side,
+            confidence: record.confidence.map(|value| value.to_string()),
+            limit_price: record.limit_price.map(|value| value.to_string()),
+            suggested_size: record.suggested_size.map(|value| value.to_string()),
+            ttl_ms: record.ttl_ms,
+            reason: record.reason,
+            features: record.features,
+            input_snapshot_hash: record.input_snapshot_hash,
+            created_at: record.created_at,
         }
     }
 }

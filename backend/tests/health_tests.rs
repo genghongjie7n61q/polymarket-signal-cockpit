@@ -5,9 +5,10 @@ use polymarket_backend::{
     realtime::{MarketTick, RealtimeBus, RealtimeEvent, RealtimeRuntime, RealtimeStateOwner},
     router::{build_router, build_router_with_runtime, build_router_with_storage},
     storage::{
-        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageCommand,
-        StorageError, StorageRepository, StorageWriter, StorageWriterRuntime, TickRecord,
+        CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
+        NewTick, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
+        SignalWithMarketRecord, StorageCommand, StorageError, StorageRepository, StorageWriter,
+        StorageWriterRuntime, TickRecord,
     },
 };
 use serde_json::{json, Value};
@@ -215,5 +216,21 @@ impl StorageRepository for HealthRepository {
         _window_start: OffsetDateTime,
     ) -> Result<Vec<ReplayTick>, StorageError> {
         unreachable!("health test does not replay ticks")
+    }
+
+    async fn recent_candles(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<CandleRecord>, StorageError> {
+        unreachable!("health test does not query candles")
+    }
+
+    async fn latest_signals(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<SignalWithMarketRecord>, StorageError> {
+        unreachable!("health test does not query signals")
     }
 }

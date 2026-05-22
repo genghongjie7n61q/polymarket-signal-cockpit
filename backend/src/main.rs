@@ -7,10 +7,10 @@ use polymarket_backend::{
         CoinbaseCollectorConfig, MarketKey, PolymarketSnapshotRefresherConfig, RealtimeRuntime,
         DEFAULT_REALTIME_QUEUE_CAPACITY,
     },
-    router::build_router_with_runtime,
+    router::build_router_with_runtime_and_storage,
     storage::{
-        connect_pool, run_migrations, PgPoolOptionsConfig, PostgresStorage, StorageWriter,
-        StorageWriterRuntime,
+        connect_pool, run_migrations, PgPoolOptionsConfig, PostgresStorage, StorageRepository,
+        StorageWriter, StorageWriterRuntime,
     },
 };
 use tracing_subscriber::EnvFilter;
@@ -25,21 +25,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let addr = SocketAddr::new(config.host.parse()?, config.port);
-    let (storage_writer, market_ids) = if let Some(database_url) = config.database_url.as_deref() {
-        let pool = connect_pool(database_url, PgPoolOptionsConfig::default()).await?;
-        run_migrations(&pool).await?;
-        let storage = PostgresStorage::new(pool);
-        let market_ids = storage.load_realtime_market_ids().await?;
-        let storage = Arc::new(storage);
-        let (writer, join) = StorageWriter::spawn(
-            storage,
-            config.storage_writer_queue_capacity,
-            Duration::from_millis(config.storage_writer_flush_interval_ms),
-        );
-        (Some(StorageWriterRuntime::new(writer, join)), market_ids)
-    } else {
-        (None, BTreeMap::<MarketKey, Uuid>::new())
-    };
+    let (storage_writer, market_ids, storage_repository) =
+        if let Some(database_url) = config.database_url.as_deref() {
+            let pool = connect_pool(database_url, PgPoolOptionsConfig::default()).await?;
+            run_migrations(&pool).await?;
+            let storage = PostgresStorage::new(pool);
+            let market_ids = storage.load_realtime_market_ids().await?;
+            let storage: Arc<dyn StorageRepository> = Arc::new(storage);
+            let (writer, join) = StorageWriter::spawn(
+                storage.clone(),
+                config.storage_writer_queue_capacity,
+                Duration::from_millis(config.storage_writer_flush_interval_ms),
+            );
+            (
+                Some(StorageWriterRuntime::new(writer, join)),
+                market_ids,
+                Some(storage),
+            )
+        } else {
+            (None, BTreeMap::<MarketKey, Uuid>::new(), None)
+        };
     let realtime = Some(match storage_writer.as_ref() {
         Some(writer) => RealtimeRuntime::spawn_with_storage(
             DEFAULT_REALTIME_QUEUE_CAPACITY,
@@ -97,7 +102,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
     }
-    let app = build_router_with_runtime(config, storage_writer, realtime);
+    let app =
+        build_router_with_runtime_and_storage(config, storage_writer, realtime, storage_repository);
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     tracing::info!(%addr, "starting polymarket backend");

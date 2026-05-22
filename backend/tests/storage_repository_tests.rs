@@ -365,6 +365,88 @@ async fn repository_queries_replay_ticks_by_market_window() {
     ctx.cleanup().await;
 }
 
+#[tokio::test]
+async fn repository_queries_recent_candles_by_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    for offset in [0, 60, 120] {
+        sqlx::query(
+            r#"
+            INSERT INTO candles_1m (market_id, start_ts, open, high, low, close, volume)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(ctx.market_id)
+        .bind(ctx.window_start + Duration::seconds(offset))
+        .bind(BigDecimal::from(78_000 + offset))
+        .bind(BigDecimal::from(78_010 + offset))
+        .bind(BigDecimal::from(77_990 + offset))
+        .bind(BigDecimal::from(78_005 + offset))
+        .bind(BigDecimal::from(offset + 1))
+        .execute(&ctx.pool)
+        .await
+        .expect("candle insert");
+    }
+
+    let candles = storage
+        .recent_candles(&ctx.market_key, 2)
+        .await
+        .expect("recent candle query");
+
+    assert_eq!(candles.len(), 2);
+    assert_eq!(candles[0].market_key, ctx.market_key);
+    assert_eq!(
+        candles[0].start_ts,
+        ctx.window_start + Duration::seconds(60)
+    );
+    assert_eq!(candles[0].close, BigDecimal::from(78_065));
+    assert_eq!(
+        candles[1].start_ts,
+        ctx.window_start + Duration::seconds(120)
+    );
+
+    ctx.cleanup().await;
+}
+
+#[tokio::test]
+async fn repository_queries_latest_signals_by_market() {
+    let ctx = TestContext::create().await;
+
+    let storage = PostgresStorage::new(ctx.pool.clone());
+    for (index, side) in [(1, "Up"), (2, "Down"), (3, "Up")] {
+        storage
+            .insert_signal(&NewSignal {
+                market_window_id: ctx.window_id,
+                model_version_id: ctx.model_version_id,
+                signal_type: "actionable_alert".to_string(),
+                side: Some(side.to_string()),
+                confidence: Some(BigDecimal::from(80 + index) / BigDecimal::from(100)),
+                limit_price: Some(BigDecimal::from(50 + index) / BigDecimal::from(100)),
+                suggested_size: Some(BigDecimal::from(index)),
+                ttl_ms: Some(15_000),
+                reason: format!("signal {index}"),
+                features: json!({"index": index}),
+                input_snapshot_hash: format!("latest-{index}-{}", ctx.suffix),
+            })
+            .await
+            .expect("signal insert");
+    }
+
+    let signals = storage
+        .latest_signals(&ctx.market_key, 2)
+        .await
+        .expect("latest signal query");
+
+    assert_eq!(signals.len(), 2);
+    assert!(signals[0].created_at >= signals[1].created_at);
+    assert_eq!(signals[0].market_key, ctx.market_key);
+    assert_eq!(signals[0].reason, "signal 3");
+    assert_eq!(signals[1].reason, "signal 2");
+
+    ctx.cleanup().await;
+}
+
 struct TestContext {
     pool: PgPool,
     suffix: String,
@@ -572,6 +654,12 @@ impl TestContext {
             .execute(&self.pool)
             .await
             .expect("tick cleanup");
+
+        sqlx::query("DELETE FROM candles_1m WHERE market_id = $1")
+            .bind(self.market_id)
+            .execute(&self.pool)
+            .await
+            .expect("candle cleanup");
 
         sqlx::query(
             r#"

@@ -59,7 +59,7 @@ Add routes:
 
 Expose `RealtimeRuntime::state_snapshot()` for handlers to read the current state without mutating it.
 
-- [ ] **Step 3: Verify green**
+- [x] **Step 3: Verify green**
 
 Run the same dev-2 test command and then full backend tests.
 
@@ -72,7 +72,7 @@ Run the same dev-2 test command and then full backend tests.
 - Test: `backend/tests/storage_repository_tests.rs`
 - Test: `backend/tests/api_routes_tests.rs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add repository tests for:
 - Query recent 1m candles by `market_key` and limit.
@@ -82,7 +82,7 @@ Add API tests for:
 - `GET /api/markets/btc5m/candles?limit=60`
 - `GET /api/signals?market_key=btc5m&limit=20`
 
-- [ ] **Step 2: Implement storage read methods**
+- [x] **Step 2: Implement storage read methods**
 
 Extend `StorageRepository` with:
 - `recent_candles(market_key, limit) -> Vec<CandleRecord>`
@@ -90,9 +90,14 @@ Extend `StorageRepository` with:
 
 Wire handlers to return empty arrays when storage is unavailable, but keep runtime health explicit about missing database configuration.
 
-- [ ] **Step 3: Verify green**
+- [x] **Step 3: Verify green**
 
 Run targeted repository/API tests and full backend tests on dev-2.
+
+Evidence on dev-2:
+- RED: `cargo test -p polymarket-backend --test storage_repository_tests repository_queries_recent_candles_by_market --locked` failed because `PostgresStorage` lacked `recent_candles` and `latest_signals`.
+- GREEN: targeted repository/API tests passed.
+- Full: `cargo test -p polymarket-backend --locked` passed in the Rust 1.87 container with `DATABASE_URL` pointed at dev-2 PostgreSQL `127.0.0.1:15432`.
 
 ### Task 3: Model Assignment And Notification Channel Config API
 

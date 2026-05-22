@@ -6,9 +6,9 @@ use uuid::Uuid;
 use crate::{
     realtime::MarketKey,
     storage::{
-        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageError,
-        TickRecord,
+        CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
+        NewTick, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
+        SignalWithMarketRecord, StorageError, TickRecord,
     },
 };
 
@@ -33,6 +33,16 @@ pub trait StorageRepository: Send + Sync {
         market_key: &str,
         window_start: time::OffsetDateTime,
     ) -> Result<Vec<ReplayTick>, StorageError>;
+    async fn recent_candles(
+        &self,
+        market_key: &str,
+        limit: i64,
+    ) -> Result<Vec<CandleRecord>, StorageError>;
+    async fn latest_signals(
+        &self,
+        market_key: &str,
+        limit: i64,
+    ) -> Result<Vec<SignalWithMarketRecord>, StorageError>;
 }
 
 #[derive(Clone)]
@@ -297,5 +307,69 @@ impl StorageRepository for PostgresStorage {
                 size: row.get("size"),
             })
             .collect())
+    }
+
+    async fn recent_candles(
+        &self,
+        market_key: &str,
+        limit: i64,
+    ) -> Result<Vec<CandleRecord>, StorageError> {
+        let limit = limit.clamp(1, 500);
+        let mut candles = sqlx::query_as::<_, CandleRecord>(
+            r#"
+            SELECT m.market_key, c.start_ts, c.open, c.high, c.low, c.close, c.volume
+            FROM candles_1m c
+            JOIN markets m ON m.id = c.market_id
+            WHERE m.market_key = $1
+            ORDER BY c.start_ts DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(market_key)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        candles.reverse();
+        Ok(candles)
+    }
+
+    async fn latest_signals(
+        &self,
+        market_key: &str,
+        limit: i64,
+    ) -> Result<Vec<SignalWithMarketRecord>, StorageError> {
+        let limit = limit.clamp(1, 200);
+        let signals = sqlx::query_as::<_, SignalWithMarketRecord>(
+            r#"
+            SELECT
+                s.id,
+                m.market_key,
+                s.market_window_id,
+                s.model_version_id,
+                s.signal_type,
+                s.side,
+                s.confidence,
+                s.limit_price,
+                s.suggested_size,
+                s.ttl_ms,
+                s.reason,
+                s.features,
+                s.input_snapshot_hash,
+                s.created_at
+            FROM signals s
+            JOIN market_windows w ON w.id = s.market_window_id
+            JOIN markets m ON m.id = w.market_id
+            WHERE m.market_key = $1
+            ORDER BY s.created_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(market_key)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(signals)
     }
 }

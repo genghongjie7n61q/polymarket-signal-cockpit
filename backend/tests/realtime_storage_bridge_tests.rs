@@ -2,9 +2,9 @@ use bigdecimal::BigDecimal;
 use polymarket_backend::{
     realtime::{MarketKey, MarketTick, RealtimeEvent, RealtimeStorageBridge},
     storage::{
-        NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal, NewTick,
-        RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord, StorageError,
-        StorageRepository, StorageWriter, TickRecord,
+        CandleRecord, NewNotificationDelivery, NewRawMarketEvent, NewRuntimeEvent, NewSignal,
+        NewTick, RawMarketEventRecord, ReplayTick, RuntimeEventRecord, SignalRecord,
+        SignalWithMarketRecord, StorageError, StorageRepository, StorageWriter, TickRecord,
     },
 };
 use std::{
@@ -127,6 +127,22 @@ impl StorageRepository for CapturedRepository {
         _window_start: OffsetDateTime,
     ) -> Result<Vec<ReplayTick>, StorageError> {
         unreachable!("bridge test does not replay ticks")
+    }
+
+    async fn recent_candles(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<CandleRecord>, StorageError> {
+        unreachable!("bridge test does not query candles")
+    }
+
+    async fn latest_signals(
+        &self,
+        _market_key: &str,
+        _limit: i64,
+    ) -> Result<Vec<SignalWithMarketRecord>, StorageError> {
+        unreachable!("bridge test does not query signals")
     }
 }
 
