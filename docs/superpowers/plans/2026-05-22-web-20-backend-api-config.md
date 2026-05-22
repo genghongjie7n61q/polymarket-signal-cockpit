@@ -176,7 +176,7 @@ Evidence on dev-2:
 - Create: `docs/dev-2-web-20-validation.md`
 - Modify: `docs/superpowers/plans/2026-05-22-web-20-backend-api-config.md`
 
-- [ ] **Step 1: Deploy on dev-2**
+- [x] **Step 1: Deploy on dev-2**
 
 Sync branch to `/opt/polymarket-signal-cockpit`, then restart intentional dev-2 stack:
 
@@ -186,7 +186,7 @@ DEV2_APP_PORT=8080 \
 podman-compose -f docker-compose.dev2.yml up -d --force-recreate backend
 ```
 
-- [ ] **Step 2: Verify endpoints**
+- [x] **Step 2: Verify endpoints**
 
 Run:
 
@@ -199,7 +199,7 @@ curl -fsS http://192.168.103.157:8080/api/markets/btc5m/state
 
 Record representative output and counters.
 
-- [ ] **Step 3: Record handoff**
+- [x] **Step 3: Record handoff**
 
 Update Linear WEB-20 with:
 - branch/commit
@@ -207,6 +207,8 @@ Update Linear WEB-20 with:
 - dev-2 runtime evidence
 - known gaps
 - PR status, including WEB-42 if GitHub PR creation remains blocked.
+
+Evidence recorded in `docs/dev-2-web-20-validation.md`.
 
 ### Self-Review Checklist
 
