@@ -7,6 +7,8 @@ This file is the project-level operating guide for Codex/agent sessions. It shou
 - Optimize for the project goal, but stay inside the hard boundaries below.
 - Prefer decisive execution over asking for every minor choice.
 - Use judgment when the guide is silent: follow the existing architecture, keep changes scoped, test what matters, and document important evidence.
+- Code development must use the Superpowers workflow. Before implementation work, invoke the relevant Superpowers skills for the task shape, especially planning, TDD, systematic debugging, worktree use, code review, and verification-before-completion when they apply.
+- Linear is the default source of truth for what to do next. When Linear clearly defines the next unblocked issue, dependencies, and acceptance criteria, continue autonomously through that work instead of waiting for the user to prompt every step.
 - If a rule blocks a clearly better path, explain the tradeoff and ask the user before changing the rule.
 
 ## Hard Prohibitions
@@ -51,15 +53,16 @@ This file is the project-level operating guide for Codex/agent sessions. It shou
 - When Linear issues, dependencies, and acceptance criteria are clear, the primary controller may continue from one issue to the next without waiting for the user to remind it.
 - The default loop is:
   1. Read Linear and this guide.
-  2. Pick the next unblocked issue in dependency order.
-  3. Claim it in Linear when possible.
-  4. Create or enter the issue branch/worktree.
-  5. Implement within scope.
-  6. Run unit tests.
-  7. Validate runtime behavior on `dev-2`.
-  8. Run or request the needed review pass.
-  9. Record evidence in Linear or a handoff note.
-  10. Push the branch when appropriate, clean temporary resources, then proceed to the next issue.
+  2. Use Superpowers skills that match the task before code changes, and keep following their workflow through implementation and verification.
+  3. Pick the next unblocked issue in dependency order.
+  4. Claim it in Linear when possible.
+  5. Create or enter the issue branch/worktree.
+  6. Implement within scope using TDD for code changes unless the user explicitly approves an exception.
+  7. Run unit tests.
+  8. Validate runtime behavior on `dev-2`.
+  9. Run or request the needed review pass.
+  10. Record evidence in Linear or a handoff note.
+  11. Push the branch when appropriate, clean temporary resources, then proceed to the next issue.
 - The controller may create short-lived subagents for bounded review, verification, UI design, or disjoint implementation work when the context-budget rules are satisfied.
 - The controller should report progress after each completed issue, major blocker, or material design decision; it does not need to ask for permission before every small implementation choice.
 - Stop and ask the user before:
