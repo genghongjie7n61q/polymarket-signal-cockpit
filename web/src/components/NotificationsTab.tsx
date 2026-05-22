@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { saveNotificationChannel, sendFeishuDryRun } from "../api/client";
 import type { CockpitMarket, FeishuDryRunResponse, NotificationChannel } from "../api/types";
 
@@ -15,6 +15,15 @@ export function NotificationsTab({ market, apiBase, adminToken }: NotificationsT
   const [enabled, setEnabled] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [dryRun, setDryRun] = useState<FeishuDryRunResponse | null>(null);
+
+  useEffect(() => {
+    setChannels(market.notification_channels);
+    setName("primary");
+    setWebhookUrl("");
+    setEnabled(true);
+    setMessage(null);
+    setDryRun(null);
+  }, [market]);
 
   async function onSave() {
     setMessage(null);
@@ -35,6 +44,7 @@ export function NotificationsTab({ market, apiBase, adminToken }: NotificationsT
       setMessage("飞书配置已保存");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
+      setWebhookUrl("");
     }
   }
 
@@ -55,7 +65,12 @@ export function NotificationsTab({ market, apiBase, adminToken }: NotificationsT
       </label>
       <label>
         Webhook URL
-        <input value={webhookUrl} onChange={(event) => setWebhookUrl(event.target.value)} />
+        <input
+          autoComplete="off"
+          type="password"
+          value={webhookUrl}
+          onChange={(event) => setWebhookUrl(event.target.value)}
+        />
       </label>
       <label className="checkbox-row">
         <input checked={enabled} type="checkbox" onChange={(event) => setEnabled(event.target.checked)} />

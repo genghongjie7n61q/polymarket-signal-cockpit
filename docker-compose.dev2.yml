@@ -48,7 +48,7 @@ services:
     image: node:22-bookworm
     network_mode: host
     working_dir: /workspace/web
-    command: sh -lc "npm install && npm run build && npm run preview -- --host 0.0.0.0 --port ${DEV2_WEB_PORT:-5173}"
+    command: sh -lc "npm ci && npm run build && npm run preview -- --host 0.0.0.0 --port ${DEV2_WEB_PORT:-5173}"
     environment:
       VITE_API_BASE: ${VITE_API_BASE:-http://192.168.103.157:8080/api}
     volumes:

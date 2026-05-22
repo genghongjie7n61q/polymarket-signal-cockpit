@@ -34,6 +34,11 @@ class FakeWebSocket {
   emitError() {
     this.onerror?.(new Event("error"));
   }
+
+  emitClose() {
+    this.readyState = 3;
+    this.onclose?.(new CloseEvent("close"));
+  }
 }
 
 beforeEach(() => {
@@ -83,8 +88,64 @@ describe("useCockpitData", () => {
     const btc = result.current.markets.find((market) => market.summary.market_key === "btc5m");
     expect(btc?.summary.latest_tick?.price).toBe("100222");
     expect(btc?.latest_actionable_alert?.id).toBe("00000000-0000-0000-0000-000000000004");
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
 
     act(() => FakeWebSocket.instances[0].emitError());
     expect(result.current.connection).toBe("reconnecting");
+  });
+
+  it("refreshes full cockpit data after websocket snapshots so recommendations update", async () => {
+    const refreshed = structuredClone(bootstrapFixture);
+    refreshed.markets[0].latest_actionable_alert = {
+      ...refreshed.markets[0].latest_actionable_alert!,
+      id: "00000000-0000-0000-0000-000000000099",
+      reason: "new realtime alert",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => structuredClone(bootstrapFixture),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => refreshed,
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useCockpitData({ apiBase: "http://backend.test/api" }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() =>
+      FakeWebSocket.instances[0].emitMessage({
+        type: "snapshot",
+        generated_at: "2026-05-22T00:02:00Z",
+        markets: [bootstrapFixture.markets[0].summary],
+      }),
+    );
+
+    await waitFor(() =>
+      expect(result.current.markets[0].latest_actionable_alert?.id).toBe("00000000-0000-0000-0000-000000000099"),
+    );
+    expect(result.current.markets[0].latest_actionable_alert?.reason).toBe("new realtime alert");
+  });
+
+  it("ignores close events from replaced websocket instances", async () => {
+    const { result } = renderHook(() =>
+      useCockpitData({ apiBase: "http://backend.test/api", reconnectBaseMs: 10, reconnectMaxMs: 20 }),
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const firstSocket = FakeWebSocket.instances[0];
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(FakeWebSocket.instances).toHaveLength(2);
+
+    await act(async () => {
+      firstSocket.emitClose();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+    expect(FakeWebSocket.instances).toHaveLength(2);
   });
 });

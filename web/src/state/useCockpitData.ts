@@ -82,6 +82,8 @@ export function useCockpitData({
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
   const disposedRef = useRef(false);
+  const socketGenerationRef = useRef(0);
+  const fullRefreshInFlightRef = useRef(false);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current !== null) {
@@ -92,23 +94,64 @@ export function useCockpitData({
 
   const connectWebSocket = useCallback(() => {
     clearReconnectTimer();
+    const generation = socketGenerationRef.current + 1;
+    socketGenerationRef.current = generation;
     wsRef.current?.close();
+    wsRef.current = null;
+    if (disposedRef.current) {
+      return;
+    }
     setConnection((current) => (current === "reconnecting" ? "reconnecting" : "connecting"));
 
     wsRef.current = openMarketsWebSocket(apiBase, {
       onOpen: () => {
+        if (disposedRef.current || generation !== socketGenerationRef.current) {
+          return;
+        }
         reconnectAttemptRef.current = 0;
         setConnection("live");
       },
       onSnapshot: (message) => {
+        if (disposedRef.current || generation !== socketGenerationRef.current) {
+          return;
+        }
         setGeneratedAt(message.generated_at);
         setMarkets((current) => mergeMarketSummaries(current, message.markets));
+        if (!fullRefreshInFlightRef.current) {
+          fullRefreshInFlightRef.current = true;
+          fetchBootstrap(apiBase)
+            .then((bootstrap) => {
+              if (disposedRef.current || generation !== socketGenerationRef.current) {
+                return;
+              }
+              setMarkets(bootstrap.markets);
+              setRuntime(bootstrap.runtime);
+              setGeneratedAt(bootstrap.generated_at);
+              setSelectedMarketKey((current) =>
+                current && bootstrap.markets.some((market) => market.summary.market_key === current)
+                  ? current
+                  : defaultMarketKey(bootstrap.markets),
+              );
+            })
+            .catch((caught) => {
+              if (disposedRef.current || generation !== socketGenerationRef.current) {
+                return;
+              }
+              setError(caught instanceof Error ? caught.message : String(caught));
+            })
+            .finally(() => {
+              fullRefreshInFlightRef.current = false;
+            });
+        }
       },
       onError: () => {
+        if (disposedRef.current || generation !== socketGenerationRef.current) {
+          return;
+        }
         setConnection("reconnecting");
       },
       onClose: () => {
-        if (disposedRef.current) {
+        if (disposedRef.current || generation !== socketGenerationRef.current) {
           return;
         }
         setConnection("reconnecting");
@@ -125,6 +168,9 @@ export function useCockpitData({
     setError(null);
     try {
       const bootstrap = await fetchBootstrap(apiBase);
+      if (disposedRef.current) {
+        return;
+      }
       setMarkets(bootstrap.markets);
       setRuntime(bootstrap.runtime);
       setGeneratedAt(bootstrap.generated_at);
@@ -135,10 +181,15 @@ export function useCockpitData({
       );
       connectWebSocket();
     } catch (caught) {
+      if (disposedRef.current) {
+        return;
+      }
       setError(caught instanceof Error ? caught.message : String(caught));
       setConnection("failed");
     } finally {
-      setLoading(false);
+      if (!disposedRef.current) {
+        setLoading(false);
+      }
     }
   }, [apiBase, connectWebSocket]);
 
@@ -147,6 +198,7 @@ export function useCockpitData({
     void refresh();
     return () => {
       disposedRef.current = true;
+      socketGenerationRef.current += 1;
       clearReconnectTimer();
       wsRef.current?.close();
       wsRef.current = null;

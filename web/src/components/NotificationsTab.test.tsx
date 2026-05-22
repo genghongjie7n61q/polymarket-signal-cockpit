@@ -23,7 +23,9 @@ describe("NotificationsTab", () => {
     );
 
     render(<NotificationsTab adminToken="admin-token" apiBase="/api" market={bootstrapFixture.markets[0]} />);
-    fireEvent.change(screen.getByLabelText("Webhook URL"), {
+    const webhookInput = screen.getByLabelText("Webhook URL");
+    expect(webhookInput).toHaveAttribute("type", "password");
+    fireEvent.change(webhookInput, {
       target: { value: "https://open.feishu.cn/open-apis/bot/v2/hook/raw-secret" },
     });
     fireEvent.click(screen.getByRole("button", { name: "保存飞书" }));
@@ -31,6 +33,35 @@ describe("NotificationsTab", () => {
     await waitFor(() => expect(screen.getByText("https://open.feishu.cn/.../masked")).toBeInTheDocument());
     expect(screen.getByLabelText("Webhook URL")).toHaveValue("");
     expect(screen.queryByText(/raw-secret/)).not.toBeInTheDocument();
+  });
+
+  it("clears raw webhook input after save failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: async () => "unauthorized",
+      }),
+    );
+
+    render(<NotificationsTab adminToken="" apiBase="/api" market={bootstrapFixture.markets[0]} />);
+    fireEvent.change(screen.getByLabelText("Webhook URL"), {
+      target: { value: "https://open.feishu.cn/open-apis/bot/v2/hook/raw-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存飞书" }));
+
+    await waitFor(() => expect(screen.getByText(/401 unauthorized/)).toBeInTheDocument());
+    expect(screen.getByLabelText("Webhook URL")).toHaveValue("");
+  });
+
+  it("syncs channel state when switching markets", () => {
+    const { rerender } = render(<NotificationsTab adminToken="" apiBase="/api" market={bootstrapFixture.markets[0]} />);
+    expect(screen.getByText("https://open.feishu.cn/.../abcd")).toBeInTheDocument();
+
+    rerender(<NotificationsTab adminToken="" apiBase="/api" market={bootstrapFixture.markets[1]} />);
+
+    expect(screen.queryByText("https://open.feishu.cn/.../abcd")).not.toBeInTheDocument();
   });
 
   it("displays dry-run result separately from delivery history", async () => {
