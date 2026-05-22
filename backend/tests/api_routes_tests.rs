@@ -626,8 +626,11 @@ async fn cockpit_bootstrap_api_returns_frontend_contract_without_secrets() {
 async fn notification_deliveries_api_returns_masked_status_for_market() {
     let signal = signal_record("btc5m", "Down", "delivery status");
     let channel = notification_channel("btc5m", "primary", true);
+    let mut delivery = notification_delivery("btc5m", signal.id, &channel, "failed");
+    delivery.response_summary =
+        Some("failed calling https://open.feishu.cn/open-apis/bot/v2/hook/abcd".to_string());
     let app = build_test_app_with_repository(ApiRepository {
-        deliveries: vec![notification_delivery("btc5m", signal.id, &channel, "sent")],
+        deliveries: vec![delivery],
         ..Default::default()
     })
     .await;
@@ -653,8 +656,12 @@ async fn notification_deliveries_api_returns_masked_status_for_market() {
     assert_eq!(json["deliveries"].as_array().expect("deliveries").len(), 1);
     assert_eq!(json["deliveries"][0]["channel_name"], "primary");
     assert_eq!(json["deliveries"][0]["channel_type"], "feishu");
-    assert_eq!(json["deliveries"][0]["status"], "sent");
+    assert_eq!(json["deliveries"][0]["status"], "failed");
     assert_eq!(json["deliveries"][0]["attempt_count"], 1);
+    assert_eq!(
+        json["deliveries"][0]["response_summary"],
+        "failed calling https://open.feishu.cn/open-apis/bot/v2/hook/****"
+    );
     assert!(!json.to_string().contains("open-apis/bot/v2/hook/abcd"));
 }
 

@@ -94,7 +94,7 @@ impl NotificationError {
     }
 }
 
-fn redact_webhook_secret(value: &str) -> String {
+pub(crate) fn redact_webhook_secret(value: &str) -> String {
     let marker = "/open-apis/bot/v2/hook/";
     let Some(start) = value.find(marker) else {
         return value.to_string();

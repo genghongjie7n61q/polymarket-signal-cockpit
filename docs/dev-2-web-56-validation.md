@@ -54,6 +54,20 @@ test notification_deliveries_api_returns_masked_status_for_market ... ok
 test result: ok. 17 passed; 0 failed
 ```
 
+Review hardening RED/GREEN:
+
+```text
+notification_deliveries_api_returns_masked_status_for_market ... FAILED
+
+left: "failed calling https://open.feishu.cn/open-apis/bot/v2/hook/abcd"
+right: "failed calling https://open.feishu.cn/open-apis/bot/v2/hook/****"
+
+notification_deliveries_api_returns_masked_status_for_market ... ok
+```
+
+This closes the review note that historical or manually inserted
+`response_summary` values could contain a Feishu webhook path.
+
 ## Full Test Evidence
 
 Formatting check on changed Rust files:

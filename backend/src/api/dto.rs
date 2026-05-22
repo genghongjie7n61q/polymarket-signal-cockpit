@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 use crate::notification::NotificationRuntimeSnapshot;
+use crate::notification::types::redact_webhook_secret;
 use crate::realtime::{
     CandleSnapshot, LiveMarketSummary, MarketTick, MarketWindowState, PolymarketSnapshot,
     RealtimeRuntimeSnapshot,
@@ -335,7 +336,9 @@ impl NotificationDeliveryDto {
             channel_name: record.channel_name,
             status: record.status,
             attempt_count: record.attempt_count,
-            response_summary: record.response_summary,
+            response_summary: record
+                .response_summary
+                .map(|summary| redact_webhook_secret(&summary)),
             created_at: record.created_at,
             updated_at: record.updated_at,
         }
