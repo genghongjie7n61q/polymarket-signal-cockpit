@@ -14,6 +14,7 @@ use crate::{
         NotificationChannelDto, NotificationChannelsResponseDto, PolymarketSnapshotDto,
         RuntimeHealthDto, SignalDto, SignalsResponseDto,
     },
+    api::ws::markets_ws,
     realtime::{LiveMarketState, MarketKey},
     router::AppState,
     storage::{NewModelAssignment, NewNotificationChannel},
@@ -25,6 +26,7 @@ pub fn api_router() -> Router<AppState> {
         .route("/markets/{market_key}/state", get(market_state))
         .route("/markets/{market_key}/candles", get(market_candles))
         .route("/signals", get(latest_signals))
+        .route("/ws/markets", get(markets_ws))
         .route("/config/model-assignments", get(list_model_assignments))
         .route(
             "/config/model-assignments/{market_key}",

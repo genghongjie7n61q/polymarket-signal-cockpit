@@ -109,7 +109,7 @@ Evidence on dev-2:
 - Test: `backend/tests/storage_repository_tests.rs`
 - Test: `backend/tests/api_routes_tests.rs`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Test:
 - `GET /api/config/model-assignments` lists active assignments.
@@ -152,7 +152,7 @@ Test:
 - Publishing a tick into realtime state results in a later snapshot update.
 - Unsupported query parameters return a normal close/error payload rather than panicking.
 
-- [ ] **Step 2: Implement WebSocket handler**
+- [x] **Step 2: Implement WebSocket handler**
 
 Enable Axum `ws` feature and add:
 - `GET /api/ws/markets`
@@ -161,9 +161,14 @@ Enable Axum `ws` feature and add:
 
 This keeps model/web fanout decoupled from the realtime ingestion critical path. A later issue can replace polling with a dedicated broadcaster.
 
-- [ ] **Step 3: Verify green**
+- [x] **Step 3: Verify green**
 
 Run WebSocket tests, full backend tests, and dev-2 service smoke.
+
+Evidence on dev-2:
+- RED: `cargo test -p polymarket-backend --test api_ws_tests markets_ws_sends_initial_snapshot --locked` failed with HTTP 404 before the route existed.
+- GREEN: `cargo test -p polymarket-backend --test api_ws_tests --locked` passed with 3 WebSocket tests.
+- Full: `cargo test -p polymarket-backend --locked` passed after enabling Axum `ws` and locking Rust 1.87-compatible transitive dependencies.
 
 ### Task 5: dev-2 Runtime Validation And Linear Handoff
 
